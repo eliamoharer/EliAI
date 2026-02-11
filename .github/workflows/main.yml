@@ -8,11 +8,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: List Files (Debug)
+        run: ls -R # This shows us where EliAI.xcodeproj actually is if it fails again
+
       - name: Build App
         run: |
-          # If you use a Workspace, change -project to -workspace and EliAI.xcodeproj to EliAI.xcworkspace
+          # Find the project or workspace automatically
+          PROJECT_PATH=$(find . -name "EliAI.xcworkspace" -o -name "EliAI.xcodeproj" | head -n 1)
+          
+          if [[ $PROJECT_PATH == *".xcworkspace"* ]]; then
+            BUILD_FLAG="-workspace"
+          else
+            BUILD_FLAG="-project"
+          fi
+
           xcodebuild archive \
-            -project EliAI.xcodeproj \
+            $BUILD_FLAG "$PROJECT_PATH" \
             -scheme EliAI \
             -configuration Release \
             -archivePath $RUNNER_TEMP/EliAI.xcarchive \
