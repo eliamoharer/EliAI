@@ -21,8 +21,8 @@ targets:
       CODE_SIGNING_ALLOWED: NO
       CODE_SIGNING_REQUIRED: NO
     dependencies:
-      - package: llama-cpp-swift
+      - package: llama.cpp
 packages:
-  llama-cpp-swift:
-    url: https://github.com/srgtuszy/llama-cpp-swift
-    branch: main
+  llama.cpp:
+    url: https://github.com/StanfordBDHG/llama.cpp
+    branch: master
