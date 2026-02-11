@@ -14,12 +14,20 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: List Schemes (Debug)
-        # This helps verify the correct scheme name if the build fails
-        run: xcodebuild -list
+      - name: Fix Directory Structure (Auto-Correction)
+        # This step moves your root swift files into Sources/EliAI so SPM can find them.
+        run: |
+          mkdir -p Sources/EliAI
+          # Move all .swift files from root to Sources/EliAI (excluding Package.swift)
+          find . -maxdepth 1 -name "*.swift" ! -name "Package.swift" -exec mv {} Sources/EliAI/ \;
+          echo "✅ Files moved to Sources/EliAI:"
+          ls -R Sources/
+
+      - name: Resolve Dependencies (Verbose)
+        # We run this explicitly to catch llama.cpp errors early
+        run: xcodebuild -resolvePackageDependencies -clonedSourcePackagesDirPath .dependencies
 
       - name: Build Archive (Unsigned)
-        # Removed "-project". Added "-destination" which is required for Packages.
         run: |
           xcodebuild archive \
             -scheme "EliAI" \
@@ -31,7 +39,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
       - name: Package IPA
-        # Manually zip the .app bundle from the archive into an .ipa
         run: |
           mkdir Payload
           # Copy the .app from the archive to the Payload folder
