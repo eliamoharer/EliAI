@@ -1,0 +1,54 @@
+name: Build EliAI IPA
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Package IPA
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Swift
+      uses: swift-actions/setup-swift@v1
+      with:
+        swift-version: "5.9"
+
+    - name: Install XcodeGen
+      run: brew install xcodegen
+
+    - name: Generate Xcode Project
+      run: xcodegen generate
+
+    - name: Build App
+      # Build the generated project
+      run: |
+        xcodebuild build \
+          -project EliAI.xcodeproj \
+          -scheme EliAI \
+          -sdk iphoneos \
+          -configuration Release \
+          -derivedDataPath build \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+
+    - name: Package IPA
+      # Manually create the Payload structure for an unsigned IPA
+      run: |
+        mkdir Payload
+        cp -r build/Build/Products/Release-iphoneos/EliAI.app Payload/
+        zip -r EliAI.ipa Payload
+
+    - name: Upload IPA Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: EliAI-IPA
+        path: EliAI.ipa
