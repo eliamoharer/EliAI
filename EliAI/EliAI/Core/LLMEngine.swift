@@ -1,5 +1,5 @@
 import Foundation
-import LlamaCppSwift
+import llama
 
 @Observable
 class LLMEngine {

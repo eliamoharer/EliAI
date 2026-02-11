@@ -9,6 +9,7 @@ struct FileExplorerView: View {
     @State private var showingSettings = false
     @State private var showingNewChatDialog = false
     @State private var selectedFile: FileItem?
+    @State private var items: [FileItem] = []
     
     var body: some View {
         NavigationView {
@@ -80,3 +81,4 @@ struct FileExplorerView: View {
             }
         }
     }
+}
