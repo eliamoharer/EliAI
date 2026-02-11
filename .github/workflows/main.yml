@@ -8,23 +8,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: List Files (Debug)
-        run: ls -R # This shows us where EliAI.xcodeproj actually is if it fails again
-
-      - name: Build App
+      - name: Generate Xcode Project
         run: |
-          # Find the project or workspace automatically
-          PROJECT_PATH=$(find . -name "EliAI.xcworkspace" -o -name "EliAI.xcodeproj" | head -n 1)
+          # This creates the EliAI.xcodeproj file that was missing
+          swift package generate-xcodeproj
           
-          if [[ $PROJECT_PATH == *".xcworkspace"* ]]; then
-            BUILD_FLAG="-workspace"
-          else
-            BUILD_FLAG="-project"
-          fi
-
+      - name: Build Archive
+        run: |
+          # We build the archive without signing
           xcodebuild archive \
-            $BUILD_FLAG "$PROJECT_PATH" \
-            -scheme EliAI \
+            -project EliAI.xcodeproj \
+            -scheme EliAI-Package \
             -configuration Release \
             -archivePath $RUNNER_TEMP/EliAI.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
@@ -33,12 +27,13 @@ jobs:
 
       - name: Package IPA
         run: |
+          # Create the folder structure required for an IPA
           mkdir -p Payload
           cp -r $RUNNER_TEMP/EliAI.xcarchive/Products/Applications/*.app Payload/
           zip -r EliAI.ipa Payload
           rm -rf Payload
 
-      - name: Upload Artifact
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: EliAI-unsigned-ipa
