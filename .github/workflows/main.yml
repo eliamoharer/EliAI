@@ -8,32 +8,41 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate Xcode Project
+      - name: Fix Directory Structure for SPM
         run: |
-          # This creates the EliAI.xcodeproj file that was missing
-          swift package generate-xcodeproj
-          
+          # If Sources doesn't exist, create it and move EliAI inside it
+          if [ -d "EliAI" ] && [ ! -d "Sources" ]; then
+            mkdir -p Sources
+            cp -r EliAI Sources/
+            echo "Successfully moved EliAI files to Sources/EliAI"
+          fi
+
       - name: Build Archive
         run: |
-          # We build the archive without signing
+          # Build the package for iOS
           xcodebuild archive \
-            -project EliAI.xcodeproj \
-            -scheme EliAI-Package \
-            -configuration Release \
+            -scheme EliAI \
+            -destination "generic/platform=iOS" \
             -archivePath $RUNNER_TEMP/EliAI.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
 
       - name: Package IPA
         run: |
-          # Create the folder structure required for an IPA
           mkdir -p Payload
-          cp -r $RUNNER_TEMP/EliAI.xcarchive/Products/Applications/*.app Payload/
+          # Find the .app file inside the archive
+          APP_PATH=$(find $RUNNER_TEMP/EliAI.xcarchive -name "*.app" | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: Could not find .app file in archive!"
+            exit 1
+          fi
+          cp -r "$APP_PATH" Payload/
           zip -r EliAI.ipa Payload
           rm -rf Payload
 
-      - name: Upload IPA
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: EliAI-unsigned-ipa
