@@ -20,7 +20,7 @@ targets:
       INFOPLIST_FILE: EliAI/EliAI/Info.plist
       CODE_SIGNING_ALLOWED: NO
       CODE_SIGNING_REQUIRED: NO
-    dependencies: [
+    dependencies:
       - package: llama-cpp-swift
 packages:
   llama-cpp-swift:
