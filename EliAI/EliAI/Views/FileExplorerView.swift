@@ -1,0 +1,82 @@
+import SwiftUI
+
+struct FileExplorerView: View {
+    var fileSystem: FileSystemManager
+    var chatManager: ChatManager
+    var isOpaque: Bool
+    var onSelectFile: (FileItem) -> Void
+    
+    @State private var showingSettings = false
+    @State private var showingNewChatDialog = false
+    @State private var selectedFile: FileItem?
+    
+    var body: some View {
+        NavigationView {
+            List {
+                Section(header: Text("Actions")) {
+                    Button(action: { showingNewChatDialog = true }) {
+                        Label("New Chat", systemImage: "plus.message")
+                    }
+                    Button(action: { showingSettings = true }) {
+                        Label("Settings", systemImage: "gear")
+                    }
+                }
+                
+                Section(header: Text("Files")) {
+                    RecursiveFileView(items: items, onSelect: onSelectFile)
+                }
+            }
+            .navigationTitle("Brain")
+            .listStyle(SidebarListStyle())
+            .onAppear {
+                items = fileSystem.getAllFilesRecursive()
+            }
+            .sheet(isPresented: $showingNewChatDialog) {
+                NewChatDialog(isPresented: $showingNewChatDialog) { name in
+                    chatManager.createNewSession(title: name)
+                }
+            }
+            .sheet(isPresented: $showingSettings) {
+                NavigationView {
+                    SettingsView()
+                        .navigationBarItems(trailing: Button("Done") { showingSettings = false })
+                }
+            }
+            .background(
+                NavigationLink(
+                    destination: FileDetailView(fileItem: selectedFile ?? FileItem(name: "", isDirectory: false, children: nil, path: URL(fileURLWithPath: ""))),
+                    isActive: Binding(
+                        get: { selectedFile != nil },
+                        set: { if !$0 { selectedFile = nil } }
+                    )
+                ) { EmptyView() }
+            )
+        }
+    }
+    
+    // Helper view for recursion
+    struct RecursiveFileView: View {
+        let items: [FileItem]
+        let onSelect: (FileItem) -> Void
+        
+        var body: some View {
+            ForEach(items, id: \.self) { item in
+                if item.isDirectory {
+                    DisclosureGroup(
+                        content: {
+                            if let children = item.children {
+                                RecursiveFileView(items: children, onSelect: onSelect)
+                            }
+                        },
+                        label: {
+                            Label(item.name, systemImage: "folder")
+                        }
+                    )
+                } else {
+                    Button(action: { onSelect(item) }) {
+                        Label(item.name, systemImage: "doc")
+                    }
+                }
+            }
+        }
+    }
