@@ -14,14 +14,14 @@ let package = Package(
             targets: ["EliAI"]),
     ],
     dependencies: [
-        // llama.cpp swift package
-        .package(url: "https://github.com/ggerganov/llama.cpp", branch: "master")
+        // llama.cpp swift wrapper
+        .package(url: "https://github.com/srgtuszy/llama-cpp-swift", branch: "main")
     ],
     targets: [
         .target(
             name: "EliAI",
             dependencies: [
-                .product(name: "llama-cpp-swift", package: "llama.cpp")
+                .product(name: "llama-cpp-swift", package: "llama-cpp-swift")
             ])
     ]
 )

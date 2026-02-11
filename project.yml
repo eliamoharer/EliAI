@@ -20,9 +20,9 @@ targets:
       INFOPLIST_FILE: EliAI/EliAI/Info.plist
       CODE_SIGNING_ALLOWED: NO
       CODE_SIGNING_REQUIRED: NO
-    dependencies:
-      - package: llama.cpp
+    dependencies: [
+      - package: llama-cpp-swift
 packages:
-  llama.cpp:
-    url: https://github.com/ggerganov/llama.cpp
-    branch: master
+  llama-cpp-swift:
+    url: https://github.com/srgtuszy/llama-cpp-swift
+    branch: main
