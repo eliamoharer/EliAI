@@ -30,6 +30,22 @@ jobs:
         cd Packages/LLM
         git lfs pull
         
+        echo "--- Restructuring Macro Sources ---"
+        mkdir -p Sources/LLMMacrosImplementation
+        # Move existing implementation files if they exist in the bridge folder
+        if [ -d "Sources/LLMMacros" ]; then
+            mv Sources/LLMMacros/*.swift Sources/LLMMacrosImplementation/ 2>/dev/null || true
+        fi
+        mkdir -p Sources/LLMMacros
+        
+        # Generate clean bridge declaration for iOS
+        cat <<'EOF' > Sources/LLMMacros/Generatable.swift
+import Foundation
+
+@attached(member, names: arbitrary)
+public macro Generatable() = #externalMacro(module: "LLMMacrosImplementation", type: "GeneratableMacro")
+EOF
+
         echo "--- Writing LLM Manifest via Heredoc ---"
         printf "// swift-tools-version: 6.0\n" > Package.swift
         cat <<'EOF' | sed 's/^        //' >> Package.swift
