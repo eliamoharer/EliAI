@@ -30,6 +30,7 @@ class LLMEngine {
 
     private let maxPromptCharacters = 24_000
     private let maxHistoryMessages = 24
+    private let responseStyleDefaultsKey = "responseStyle"
 
     func preflightModel(at url: URL) throws -> ModelValidationReport {
         try ModelValidator.validateModel(at: url)
@@ -114,7 +115,7 @@ class LLMEngine {
 
             let profile = self.activeProfile
             let clippedMessages = self.trimmedHistory(messages)
-            let prompt = profile.formatPrompt(messages: clippedMessages, systemPrompt: systemPrompt)
+            let prompt = profile.formatPrompt(messages: clippedMessages, systemPrompt: self.systemPromptForCurrentStyle(override: systemPrompt))
             self.applySamplingPreset(profile.sampling, to: llm)
 
             AppLogger.debug("Starting generation with profile \(profile.displayName).", category: .inference)
@@ -126,7 +127,13 @@ class LLMEngine {
             }
             if !Task.isCancelled {
                 let cleaned = output.replacingOccurrences(of: "<|im_end|>", with: "")
-                continuation.yield(cleaned)
+                for chunk in self.streamingChunks(from: cleaned) {
+                    if Task.isCancelled {
+                        return
+                    }
+                    continuation.yield(chunk)
+                    try? await Task.sleep(nanoseconds: 15_000_000)
+                }
             }
         }
 
@@ -171,5 +178,44 @@ class LLMEngine {
         }
 
         return included.reversed()
+    }
+
+    private func systemPromptForCurrentStyle(override: String) -> String {
+        if !override.isEmpty {
+            return override
+        }
+
+        let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "thinking"
+        switch style {
+        case "instruct":
+            return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+        case "thinking":
+            return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+        default:
+            return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
+        }
+    }
+
+    private func streamingChunks(from text: String) -> [String] {
+        guard !text.isEmpty else { return [] }
+
+        var chunks: [String] = []
+        var current = ""
+        let breakCharacters = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ",.!?;:)]}"))
+
+        for scalar in text.unicodeScalars {
+            current.unicodeScalars.append(scalar)
+
+            if breakCharacters.contains(scalar) || current.count >= 12 {
+                chunks.append(current)
+                current = ""
+            }
+        }
+
+        if !current.isEmpty {
+            chunks.append(current)
+        }
+
+        return chunks
     }
 }

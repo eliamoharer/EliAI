@@ -7,6 +7,7 @@ struct ChatView: View {
     var agentManager: AgentManager
     // Pass modelDownloader to observe progress
     var modelDownloader: ModelDownloader
+    var onShowSettings: () -> Void = {}
     
     @State private var inputText: String = ""
     @FocusState private var isInputFocused: Bool
@@ -59,6 +60,26 @@ struct ChatView: View {
                             Button(action: { showFileImporter = true }) {
                                 Label("Import New (.gguf)...", systemImage: "folder.badge.plus")
                             }
+
+                            Button {
+                                onShowSettings()
+                            } label: {
+                                Label("Settings", systemImage: "gear")
+                            }
+
+                            Button {
+                                llmEngine.stopGeneration()
+                                chatManager.createNewSession()
+                            } label: {
+                                Label("New Chat", systemImage: "plus.message")
+                            }
+
+                            Button(role: .destructive) {
+                                llmEngine.stopGeneration()
+                                chatManager.clearCurrentSession()
+                            } label: {
+                                Label("Clear Current Chat", systemImage: "trash")
+                            }
                             
                             Button(role: .destructive) {
                                 withAnimation {
@@ -108,9 +129,16 @@ struct ChatView: View {
                                     .font(.system(size: 16))
                             }
                             
-                            Button(action: {
-                                modelDownloader.downloadModel()
-                            }) {
+                            Menu {
+                                ForEach(modelDownloader.remoteCatalog) { remoteModel in
+                                    Button {
+                                        modelDownloader.selectedRemoteModelID = remoteModel.id
+                                        modelDownloader.downloadModel()
+                                    } label: {
+                                        Label("Download \(remoteModel.displayName)", systemImage: "arrow.down.circle")
+                                    }
+                                }
+                            } label: {
                                 HStack(spacing: 4) {
                                     Image(systemName: "arrow.down.circle")
                                     Text("Download")
@@ -122,6 +150,10 @@ struct ChatView: View {
                                 .cornerRadius(12)
                             }
                         }
+
+                        Text("Selected: \(modelDownloader.selectedRemoteModel.displayName)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                     }
                 }
             }
@@ -301,13 +333,10 @@ struct ChatView: View {
             
             for await token in stream {
                 fullResponse += token
-                
-                // Batch updates
-                if fullResponse.count % 5 == 0 || fullResponse.hasSuffix(".") || fullResponse.hasSuffix("\n") {
-                    await MainActor.run {
-                        assistantMessage.content = fullResponse
-                        updateLastMessage(with: assistantMessage)
-                    }
+
+                await MainActor.run {
+                    assistantMessage.content = fullResponse
+                    updateLastMessage(with: assistantMessage)
                 }
             }
             

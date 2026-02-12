@@ -2,8 +2,12 @@ import SwiftUI
 
 struct MessageBubble: View {
     let message: ChatMessage
+    @State private var isThinkingVisible = false
     
     var body: some View {
+        let parsed = parseThinkingSections(from: message.content)
+        let visibleText = message.role == .assistant ? parsed.visible : message.content
+
         HStack(alignment: .bottom, spacing: 8) {
             if message.role == .user {
                 Spacer()
@@ -28,8 +32,23 @@ struct MessageBubble: View {
                     }
                     .foregroundColor(.orange)
                 }
-                
-                Text(message.content)
+
+                if message.role == .assistant, !parsed.thinking.isEmpty {
+                    DisclosureGroup(isExpanded: $isThinkingVisible) {
+                        Text(parsed.thinking)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                            .padding(.top, 4)
+                    } label: {
+                        Text(isThinkingVisible ? "Hide Thinking" : "Show Thinking")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                 
+                Text(visibleText.isEmpty ? " " : visibleText)
                     .textSelection(.enabled)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
@@ -65,5 +84,43 @@ struct MessageBubble: View {
         case .user: return .white
         default: return .primary
         }
+    }
+
+    private func parseThinkingSections(from text: String) -> (visible: String, thinking: String) {
+        var visible = ""
+        var thinkingParts: [String] = []
+        var cursor = text.startIndex
+
+        while let startRange = text[cursor...].range(of: "<think>") {
+            visible += String(text[cursor..<startRange.lowerBound])
+            let thinkingStart = startRange.upperBound
+
+            if let endRange = text[thinkingStart...].range(of: "</think>") {
+                let section = String(text[thinkingStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !section.isEmpty {
+                    thinkingParts.append(section)
+                }
+                cursor = endRange.upperBound
+            } else {
+                let section = String(text[thinkingStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !section.isEmpty {
+                    thinkingParts.append(section)
+                }
+                cursor = text.endIndex
+                break
+            }
+        }
+
+        if cursor < text.endIndex {
+            visible += String(text[cursor...])
+        }
+
+        visible = visible
+            .replacingOccurrences(of: "<think>", with: "")
+            .replacingOccurrences(of: "</think>", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let thinking = thinkingParts.joined(separator: "\n\n")
+        return (visible, thinking)
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     var modelDownloader: ModelDownloader?
+    private let responseStyleKey = "responseStyle"
 
     var body: some View {
         Form {
@@ -44,6 +45,20 @@ struct SettingsView: View {
                         Text(error)
                             .font(.caption)
                             .foregroundColor(.red)
+                    }
+                }
+
+                Section("Response Style") {
+                    Picker(
+                        "Assistant Mode",
+                        selection: Binding(
+                            get: { UserDefaults.standard.string(forKey: responseStyleKey) ?? "thinking" },
+                            set: { UserDefaults.standard.set($0, forKey: responseStyleKey) }
+                        )
+                    ) {
+                        Text("Thinking").tag("thinking")
+                        Text("Instruct").tag("instruct")
+                        Text("Auto").tag("auto")
                     }
                 }
 

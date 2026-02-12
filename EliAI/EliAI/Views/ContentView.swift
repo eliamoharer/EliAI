@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var isChatVisible = false
-    @State private var isExplorerOpaque = false
     @State private var dragOffset: CGFloat = 0
     @State private var didAttemptFallbackModel = false
 
@@ -29,19 +28,13 @@ struct ContentView: View {
                 fileSystem: fileSystem,
                 chatManager: chatManager,
                 modelDownloader: modelDownloader,
-                isOpaque: isExplorerOpaque,
+                isOpaque: true,
                 onSelectFile: { _ in },
                 showingSettings: $showingSettings,
                 showingNewChatDialog: $showingNewChatDialog
             )
-            .opacity(isChatVisible ? 0 : (isExplorerOpaque ? 1.0 : 0.3))
+            .opacity(isChatVisible ? 0 : 1.0)
             .animation(.easeInOut, value: isChatVisible)
-            .animation(.easeInOut, value: isExplorerOpaque)
-            .onTapGesture {
-                withAnimation {
-                    isExplorerOpaque = true
-                }
-            }
             .ignoresSafeArea()
 
             GeometryReader { geometry in
@@ -50,7 +43,8 @@ struct ContentView: View {
                         chatManager: chatManager,
                         llmEngine: llmEngine,
                         agentManager: agentManager,
-                        modelDownloader: modelDownloader
+                        modelDownloader: modelDownloader,
+                        onShowSettings: { showingSettings = true }
                     )
                     .frame(height: geometry.size.height)
                     .background(Color.white)

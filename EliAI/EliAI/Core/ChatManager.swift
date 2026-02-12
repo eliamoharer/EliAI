@@ -69,4 +69,18 @@ class ChatManager {
         saveSession(session)
         AppLogger.debug("Message appended role=\(message.role.rawValue)", category: .app)
     }
+
+    func clearCurrentSession() {
+        guard var session = currentSession else { return }
+        session.messages.removeAll()
+        session.updatedAt = Date()
+        currentSession = session
+
+        if let index = sessions.firstIndex(where: { $0.id == session.id }) {
+            sessions[index] = session
+        }
+
+        saveSession(session)
+        AppLogger.info("Cleared messages for session: \(session.title)", category: .app)
+    }
 }

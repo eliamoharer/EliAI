@@ -25,7 +25,6 @@ struct NewChatDialog: View {
                     isPresented = false
                 }
                 .padding()
-                .disabled(chatName.isEmpty)
             }
         }
         .padding()
