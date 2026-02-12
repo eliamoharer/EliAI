@@ -10,9 +10,9 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     
     private var downloadTask: URLSessionDownloadTask?
     
-    // Updated URL from user
-    let modelURLString = "https://huggingface.co/AngelSlim/HY-1.8B-2Bit-GGUF/resolve/main/hunyuan-q2_0.gguf"
-    let modelFileName = "hunyuan-q2_0.gguf"
+    // Updated URL from user: LiquidAI LFM 2.5 1.2B Q4_K_M
+    let modelURLString = "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
+    let modelFileName = "LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
     
     func checkLocalModel() {
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }

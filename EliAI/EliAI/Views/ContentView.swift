@@ -140,5 +140,15 @@ struct ContentView: View {
                 }
             }
         }
+        .alert("Model Loading Error", isPresented: Binding(
+            get: { llmEngine.loadError != nil },
+            set: { _ in llmEngine.loadError = nil }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            if let error = llmEngine.loadError {
+                Text(error)
+            }
+        }
     }
 }

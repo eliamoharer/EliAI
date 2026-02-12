@@ -23,20 +23,21 @@ class LlamaModel {
         }
         
         var header = llama_model_default_params()
-        // Safeguard: use CPU only to avoid Metal/GPU crashes if resource missing
-        header.n_gpu_layers = 0 
+        // Use Metal/GPU acceleration (iPhone 15 has 5-6 GPU cores)
+        // Set to a safe value that fits in memory for this model size
+        header.n_gpu_layers = 12 
         
-        print("LlamaWrapper: calling llama_load_model_from_file...")
+        print("LlamaWrapper: calling llama_load_model_from_file with Metal enabled...")
         // Use explicit C-string handling for safety
         self.model = path.withCString { cPath in
             return llama_load_model_from_file(cPath, header)
         }
         
         if self.model == nil {
-            print("LlamaWrapper: Failed to load model (returned nil). Check format/corruption.")
-            throw NSError(domain: "LlamaError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to load model at \(path)"])
+            print("LlamaWrapper: Failed to load model (returned nil).")
+            throw NSError(domain: "LlamaError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to load model. The file might be corrupt or an incompatible GGUF version."])
         }
-        print("LlamaWrapper: Model loaded successfully.")
+        print("LlamaWrapper: Model loaded successfully with hardware acceleration.")
     }
     
     deinit {

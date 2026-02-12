@@ -7,6 +7,7 @@ class LLMEngine {
     var isLoaded = false
     var isGenerating = false
     var modelPath: String?
+    var loadError: String?
     
     // Correctly declare the context
     private var context: LlamaContext? 
@@ -15,17 +16,24 @@ class LLMEngine {
     
     func loadModel(at url: URL) async throws {
         if isGenerating { isGenerating = false }
+        self.loadError = nil
         
         let path = url.path
         print("Loading model from: \(path)")
         
-        // Actual loading logic with proper error handling
-        let model = try LlamaModel(path: path)
-        self.context = try LlamaContext(model: model)
-        
-        self.modelPath = path
-        self.isLoaded = true
-        print("Model loaded successfully")
+        do {
+            let model = try LlamaModel(path: path)
+            self.context = try LlamaContext(model: model)
+            
+            self.modelPath = path
+            self.isLoaded = true
+            print("Model loaded successfully")
+        } catch {
+            self.loadError = error.localizedDescription
+            self.isLoaded = false
+            print("Model loading failed: \(error.localizedDescription)")
+            throw error
+        }
     }
     
     func generate(prompt: String, systemPrompt: String = "") -> AsyncStream<String> {
