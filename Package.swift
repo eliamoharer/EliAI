@@ -16,8 +16,8 @@ let package = Package(
     dependencies: [
         // State-of-the-Art 2026 LLM Wrapper (Local Patch Path)
         .package(path: "Packages/LLM"),
-        // SwiftSyntax for 2026 Macros (Aligned with LLM.swift 602.0.0)
-        .package(url: "https://github.com/apple/swift-syntax.git", from: "602.0.0")
+        // SwiftSyntax for 2026 Macros (Aligned with LLM.swift 600.0.1)
+        .package(url: "https://github.com/apple/swift-syntax.git", from: "600.0.1")
     ],
     targets: [
         .target(

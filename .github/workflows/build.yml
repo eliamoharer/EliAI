@@ -21,8 +21,13 @@ jobs:
 
     - name: Set up Local Packages
       run: |
+        brew install git-lfs
+        git lfs install
         mkdir -p Packages
         git clone https://github.com/eastriverlee/LLM.swift.git Packages/LLM
+        cd Packages/LLM
+        git lfs pull
+
         
 
     - name: Set up Swift
