@@ -30,6 +30,7 @@ struct MessageBubble: View {
                 }
                 
                 Text(message.content)
+                    .textSelection(.enabled)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .background(backgroundColor)

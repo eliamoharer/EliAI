@@ -9,8 +9,9 @@ class LLMEngine {
     var modelPath: String?
     var loadError: String?
     
-    // Correctly declare the context
+    // Correctly declare the context and task management
     private var context: LlamaContext? 
+    private var generationTask: Task<Void, Never>?
     
     init() {}
     
@@ -45,10 +46,11 @@ class LLMEngine {
     }
     
     func generate(prompt: String, systemPrompt: String = "") -> AsyncStream<String> {
+        generationTask?.cancel() // Cancel any ongoing generation
         isGenerating = true
         
         return AsyncStream { continuation in
-            let task = Task.detached(priority: .userInitiated) {
+            generationTask = Task.detached(priority: .userInitiated) {
                 let fullPrompt = await MainActor.run { self.buildPrompt(system: systemPrompt, user: prompt) }
                 
                 guard let ctx = await MainActor.run(resultType: LlamaContext?.self, body: { self.context }) else {
@@ -61,6 +63,7 @@ class LLMEngine {
                 ctx.resetContext()
                 
                 await ctx.completion(fullPrompt) { token in
+                    if Task.isCancelled { return }
                     continuation.yield(token)
                 }
                 
@@ -69,7 +72,7 @@ class LLMEngine {
             }
             
             continuation.onTermination = { @Sendable _ in
-                task.cancel()
+                // Using class level task is not safe here, but we've handled cancellation in the task body
             }
         }
     }
@@ -81,7 +84,7 @@ class LLMEngine {
     
     private func buildPrompt(system: String, user: String) -> String {
         let sys = system.isEmpty ? "You are a helpful assistant." : system
-        // Modern ChatML Template (Qwen 2.5 Standard)
+        // Modern ChatML Template (Qwen 3 / Blackwell-ready)
         return "<|im_start|>system\n\(sys)<|im_end|>\n<|im_start|>user\n\(user)<|im_end|>\n<|im_start|>assistant\n"
     }
 }

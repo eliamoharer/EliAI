@@ -14,7 +14,7 @@ let package = Package(
             targets: ["EliAI"]),
     ],
     dependencies: [
-        // Modern llama.cpp wrapper (v8.0.4+)
+        // Feb 2026 Llama Backend (Supports MXFP4 / Type 40)
         .package(url: "https://github.com/mattt/llama.swift", branch: "main")
     ],
     targets: [

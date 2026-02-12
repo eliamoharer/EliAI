@@ -137,13 +137,16 @@ class LlamaContext: @unchecked Sendable {
         
         // 2. Setup batch
         var batch = llama_batch_init(Int32(tokens.count), 0, 1)
+        batch.n_tokens = Int32(tokens.count)
         defer { llama_batch_free(batch) }
         
         for (i, token) in tokens.enumerated() {
             batch.token[i] = token
             batch.pos[i] = Int32(i)
             batch.n_seq_id[i] = 1
-            batch.seq_id[i]![0] = 0
+            if let seq_ptr = batch.seq_id[i] {
+                seq_ptr[0] = 0 // Assign sequence ID 0 to all tokens in the first prompt pass
+            }
             batch.logits[i] = 0
         }
         batch.logits[Int(batch.n_tokens) - 1] = 1
