@@ -21,6 +21,20 @@ class LlamaModel {
             throw NSError(domain: "LlamaError", code: 404, userInfo: [NSLocalizedDescriptionKey: "Model file not found at \(path)"])
         }
         
+        // Log file size
+        do {
+            let attr = try FileManager.default.attributesOfItem(atPath: path)
+            let fileSize = attr[FileAttributeKey.size] as? UInt64 ?? 0
+            let mb = Double(fileSize) / (1024 * 1024)
+            print("LlamaWrapper: File size is \(String(format: "%.2f", mb)) MB")
+            
+            if fileSize < 10_000_000 {
+                throw NSError(domain: "LlamaError", code: 400, userInfo: [NSLocalizedDescriptionKey: "The model file is too small (\(String(format: "%.2f", mb)) MB). It likely didn't download completely or is an error page."])
+            }
+        } catch {
+             print("LlamaWrapper: Warning - Could not check file size.")
+        }
+        
         // 1. Diagnostic magic byte check
         if let fileHandle = FileHandle(forReadingAtPath: path) {
             if let data = try? fileHandle.read(upToCount: 4) {
