@@ -6,23 +6,34 @@ import llama
 class LlamaModel {
     var model: OpaquePointer?
     
-    init(path: String) throws {
+    // Ensure backend is initialized exactly once
+    private static let initializeBackend: Void = {
+        print("LlamaWrapper: Initializing generic backend...")
         llama_backend_init()
-        var header = llama_model_default_params()
+    }()
+    
+    init(path: String) throws {
+        // Trigger static initialization
+        _ = LlamaModel.initializeBackend
         
-        // Critical: Set n_gpu_layers to 0 to prevent crashes from missing Metal resources
-        // Once we confirm CPU works, we can look into bundling ggml-metal.metal
+        print("LlamaWrapper: Checking file at \(path)")
+        if !FileManager.default.fileExists(atPath: path) {
+            print("LlamaWrapper: ERROR - File does not exist at path.")
+            throw NSError(domain: "LlamaError", code: 404, userInfo: [NSLocalizedDescriptionKey: "Model file not found at \(path)"])
+        }
+        
+        var header = llama_model_default_params()
+        // Safeguard: use CPU only to avoid Metal/GPU crashes if resource missing
         header.n_gpu_layers = 0 
         
-        print("LlamaWrapper: Attempting to load model from \(path)")
-        
+        print("LlamaWrapper: calling llama_load_model_from_file...")
         // Use explicit C-string handling for safety
         self.model = path.withCString { cPath in
             return llama_load_model_from_file(cPath, header)
         }
         
         if self.model == nil {
-            print("LlamaWrapper: Failed to load model. Check path, permissions, or corruption.")
+            print("LlamaWrapper: Failed to load model (returned nil). Check format/corruption.")
             throw NSError(domain: "LlamaError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to load model at \(path)"])
         }
         print("LlamaWrapper: Model loaded successfully.")
@@ -43,22 +54,27 @@ class LlamaContext {
     init(model: LlamaModel) throws {
         self.model = model
         
-        // Context params
+        print("LlamaWrapper: Creating context...")
         var params = llama_context_default_params()
-        params.n_ctx = 2048 // Default context size
+        params.n_ctx = 2048
         
+        // Pass the opaque pointer
         self.context = llama_new_context_with_model(model.model, params)
         
         if self.context == nil {
             throw NSError(domain: "LlamaError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create context"])
         }
         
+        print("LlamaWrapper: Context created. Init batch...")
         // Initialize batch
-        self.batch = llama_batch_init(512, 0, 1)
+        self.batch = llama_batch_init(512, 0, 1) // default values
     }
     
     deinit {
+        // Free batch memory - check if this requires special handling
+        // llama_batch_free frees the arrays allocated by llama_batch_init
         llama_batch_free(batch)
+        
         if let context = context {
             llama_free(context)
         }
@@ -70,7 +86,10 @@ class LlamaContext {
         
         // 1. Tokenize prompt
         let tokens = tokenize(text: prompt, addBos: true)
-        if tokens.isEmpty { return }
+        if tokens.isEmpty {
+             print("LlamaWrapper: Tokenization yielded empty result.")
+             return
+        }
         
         // 2. Evaluate prompt
         batch.n_tokens = Int32(tokens.count)
@@ -86,7 +105,7 @@ class LlamaContext {
         batch.logits[tokens.count - 1] = 1 // True
         
         if llama_decode(ctx, batch) != 0 {
-            print("llama_decode failed")
+            print("LlamaWrapper: llama_decode failed")
             return
         }
         
@@ -103,16 +122,20 @@ class LlamaContext {
             var max_logit = -Float.infinity
             var best_token_id: llama_token = 0
             
-            for id in 0..<n_vocab {
-                let logit = logits![Int(id)]
-                if logit > max_logit {
-                    max_logit = logit
-                    best_token_id = id
+            if let logits = logits {
+                for id in 0..<n_vocab {
+                   // pointer arithmetic for logits
+                   let logit = logits[Int(id)]
+                   if logit > max_logit {
+                       max_logit = logit
+                       best_token_id = id
+                   }
                 }
             }
             
             // Check EOS
             if best_token_id == llama_token_eos(mdl) {
+                print("LlamaWrapper: Reached EOS.")
                 break
             }
             
@@ -132,11 +155,10 @@ class LlamaContext {
             n_cur += 1
             
             if llama_decode(ctx, batch) != 0 {
+                print("LlamaWrapper: llama_decode failed in loop.")
                 break
             }
             
-            // Yield to main loop if needed to keep UI responsive? 
-            // We are already in async task.
             await Task.yield() 
         }
     }
@@ -150,8 +172,6 @@ class LlamaContext {
         let n = llama_tokenize(mdl, text, Int32(text.utf8.count), &tokens, Int32(tokens.count), addBos, false)
         
         if n < 0 {
-             // Buffer too small, simpler to just return empty or retry with larger buffer
-             // For now assume it fits
              return []
         }
         
@@ -161,19 +181,16 @@ class LlamaContext {
     private func token_to_piece(token: llama_token) -> String {
         guard let mdl = model.model else { return "" }
         
-        // llama_token_to_piece result length includes null terminator?
-        // Let's use a buffer
-        var buf = [CChar](repeating: 0, count: 8)
+        var buf = [CChar](repeating: 0, count: 64) // Increased buffer safely
+        // Call with 'special' = false (5th arg)
         var n = llama_token_to_piece(mdl, token, &buf, Int32(buf.count), false)
         
         if n < 0 {
-            // Buffer too small
             let size = Int(-n)
-            buf = [CChar](repeating: 0, count: size)
+            buf = [CChar](repeating: 0, count: size + 1)
             n = llama_token_to_piece(mdl, token, &buf, Int32(buf.count), false)
         }
         
-        // Remove 'n' from string construction
         return String(cString: buf)
     }
 }
