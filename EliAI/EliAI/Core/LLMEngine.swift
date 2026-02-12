@@ -1,15 +1,14 @@
 import Foundation
 import Observation
-import UIKit
 @preconcurrency import LLM
 
 enum LLMEngineError: LocalizedError {
-    case modelLoadTimeout(seconds: Int)
+    case modelInitializationFailed
 
     var errorDescription: String? {
         switch self {
-        case let .modelLoadTimeout(seconds):
-            return "Model loading exceeded \(seconds) seconds and was cancelled."
+        case .modelInitializationFailed:
+            return "Model initialization failed."
         }
     }
 }
@@ -28,27 +27,9 @@ class LLMEngine {
 
     private var llm: LLM?
     private var generationTask: Task<Void, Never>?
-    private var memoryWarningObserver: NSObjectProtocol?
 
     private let maxPromptCharacters = 24_000
     private let maxHistoryMessages = 24
-    private let loadTimeoutSeconds = 120
-
-    init() {
-        memoryWarningObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didReceiveMemoryWarningNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleMemoryWarning()
-        }
-    }
-
-    deinit {
-        if let observer = memoryWarningObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-    }
 
     func preflightModel(at url: URL) throws -> ModelValidationReport {
         try ModelValidator.validateModel(at: url)
@@ -71,26 +52,9 @@ class LLMEngine {
             )
 
             let modelURL = URL(fileURLWithPath: url.path)
-            let loadTask = Task {
-                try await LLM(from: modelURL, template: .none)
-            }
-
-            let timeoutTask = Task {
-                let timeoutNanos = UInt64(loadTimeoutSeconds) * 1_000_000_000
-                try await Task.sleep(nanoseconds: timeoutNanos)
-                loadTask.cancel()
-            }
-
-            let loadedLLM: LLM
-            do {
-                loadedLLM = try await loadTask.value
-                timeoutTask.cancel()
-            } catch is CancellationError {
-                timeoutTask.cancel()
-                throw LLMEngineError.modelLoadTimeout(seconds: loadTimeoutSeconds)
-            } catch {
-                timeoutTask.cancel()
-                throw error
+            let template = templateForProfile(validation.profile)
+            guard let loadedLLM = LLM(from: modelURL, template: template) else {
+                throw LLMEngineError.modelInitializationFailed
             }
 
             applySamplingPreset(validation.profile.sampling, to: loadedLLM)
@@ -144,7 +108,7 @@ class LLMEngine {
 
                 do {
                     AppLogger.debug("Starting generation with profile \(profile.displayName).", category: .inference)
-                    await llm.resetContext()
+                    llm.clearContext()
 
                     for try await token in llm.generate(prompt) {
                         if Task.isCancelled { break }
@@ -181,15 +145,9 @@ class LLMEngine {
         AppLogger.info("Model unloaded.", category: .model)
     }
 
-    private func handleMemoryWarning() {
-        AppLogger.warning("Memory warning received. Cancelling generation and clearing state.", category: .inference)
-        stopGeneration()
-    }
-
     private func applySamplingPreset(_ preset: SamplingPreset, to llm: LLM) {
-        llm.temperature = preset.temperature
-        llm.topP = preset.topP
-        llm.repeatPenalty = preset.repeatPenalty
+        llm.topP = Float(preset.topP)
+        llm.repeatPenalty = Float(preset.repeatPenalty)
     }
 
     private func trimmedHistory(_ messages: [ChatMessage]) -> [ChatMessage] {
@@ -206,5 +164,14 @@ class LLMEngine {
         }
 
         return included.reversed()
+    }
+
+    private func templateForProfile(_ profile: ModelProfile) -> Template {
+        switch profile {
+        case .qwen3, .lfm25:
+            return .chatML("You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories.")
+        case .generic:
+            return .chatML("You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories.")
+        }
     }
 }

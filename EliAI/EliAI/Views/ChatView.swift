@@ -207,10 +207,10 @@ struct ChatView: View {
                 .onTapGesture {
                     isInputFocused = false
                 }
-                .onChange(of: chatManager.currentSession?.messages.count) { _ in
+                .onChange(of: chatManager.currentSession?.messages.count) { _, _ in
                     scrollToBottom(proxy: proxy)
                 }
-                .onChange(of: llmEngine.isGenerating) { isGenerating in
+                .onChange(of: llmEngine.isGenerating) { _, isGenerating in
                     if isGenerating { scrollToBottom(proxy: proxy) }
                 }
             }

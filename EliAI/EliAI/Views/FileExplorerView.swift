@@ -13,7 +13,7 @@ struct FileExplorerView: View {
     @State private var items: [FileItem] = []
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List {
                 Section(header: Text("Actions")) {
                     Button(action: { showingNewChatDialog = true }) {
@@ -37,16 +37,9 @@ struct FileExplorerView: View {
             .onAppear {
                 items = fileSystem.getAllFilesRecursive()
             }
-
-            .background(
-                NavigationLink(
-                    destination: FileDetailView(fileItem: selectedFile ?? FileItem(name: "", isDirectory: false, children: nil, path: URL(fileURLWithPath: ""))),
-                    isActive: Binding(
-                        get: { selectedFile != nil },
-                        set: { if !$0 { selectedFile = nil } }
-                    )
-                ) { EmptyView() }
-            )
+            .navigationDestination(item: $selectedFile) { file in
+                FileDetailView(fileItem: file)
+            }
         }
     }
     
