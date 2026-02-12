@@ -154,13 +154,13 @@ class LlamaContext {
         // llama_token_to_piece result length includes null terminator?
         // Let's use a buffer
         var buf = [CChar](repeating: 0, count: 8)
-        var n = llama_token_to_piece(mdl, token, &buf, Int32(buf.count))
+        var n = llama_token_to_piece(mdl, token, &buf, Int32(buf.count), false)
         
         if n < 0 {
             // Buffer too small
             let size = Int(-n)
             buf = [CChar](repeating: 0, count: size)
-            n = llama_token_to_piece(mdl, token, &buf, Int32(buf.count))
+            n = llama_token_to_piece(mdl, token, &buf, Int32(buf.count), false)
         }
         
         // Remove 'n' from string construction
