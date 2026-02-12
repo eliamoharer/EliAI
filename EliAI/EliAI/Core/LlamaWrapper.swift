@@ -113,47 +113,53 @@ class LlamaContext: @unchecked Sendable {
     func resetContext() {
         guard let ctx = context else { return }
         print("LlamaWrapper: Clearing KV Cache...")
-        llama_kv_cache_clear(ctx)
+        let mem = llama_get_memory(ctx)
+        llama_memory_clear(mem, true)
+    }
+    
+    // Helper to get vocab
+    private var vocab: OpaquePointer? {
+        return llama_model_get_vocab(model.model)
     }
     
     deinit {
-        llama_batch_free(batch)
+        // llama_batch_free(batch) // Removed
         if let context = context {
             llama_free(context)
         }
     }
     
-    func completion(_ prompt: String, onToken: (String) -> Void) async {
-        guard let ctx = context, let mdl = model.model else { return }
+    func completion(_ prompt: String, onToken: @escaping (String) -> Void) async {
+        guard let ctx = context, let mdl = model.model, let v = vocab else { return }
         
-        var tokens = tokenize(text: prompt, addBos: true)
-        if tokens.isEmpty { return }
+        // 1. Tokenize prompt
+        let tokens = tokenize(prompt: prompt)
         
-        if tokens.count > 2047 { tokens = Array(tokens.suffix(2047)) }
+        // 2. Setup batch
+        var batch = llama_batch_init(Int32(tokens.count), 0, 1)
+        defer { llama_batch_free(batch) }
         
-        batch.n_tokens = Int32(tokens.count)
-        for i in 0..<tokens.count {
-            batch.token[i] = tokens[i]
+        for (i, token) in tokens.enumerated() {
+            batch.token[i] = token
             batch.pos[i] = Int32(i)
             batch.n_seq_id[i] = 1
             batch.seq_id[i]![0] = 0
             batch.logits[i] = 0
         }
-        batch.logits[tokens.count - 1] = 1 
+        batch.logits[Int(batch.n_tokens) - 1] = 1
         
         if llama_decode(ctx, batch) != 0 { return }
         
         var n_cur = Int32(tokens.count)
         
-        // 3. Initialize high-quality sampler
-        let n_vocab = llama_model_n_vocab(mdl)
+        // 3. Initialize modern sampler chain (b8004+)
         let smpl = llama_sampler_chain_init(llama_sampler_chain_default_params())
-        llama_sampler_chain_add(smpl, llama_sampler_init_penalties(n_vocab, 64, 1.1, 0.0, 0.0))
+        llama_sampler_chain_add(smpl, llama_sampler_init_penalties(-1, 1.1, 0.0, 0.0)) // n_vocab removed
         llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40))
         llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95, 1))
         llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.8))
-        llama_sampler_chain_add(smpl, llama_sampler_init_softmax()) // CRITICAL for non-greedy
-        llama_sampler_chain_add(smpl, llama_sampler_init_dist(UInt32(Date().timeIntervalSince1970)))
+        // llama_sampler_chain_add(smpl, llama_sampler_init_softmax()) // CRITICAL for non-greedy - Removed, now redundant
+        llama_sampler_chain_add(smpl, llama_sampler_init_dist(UInt32(Date().timeIntervalSince1970))) // Direct call, not added to chain
         
         defer {
             llama_sampler_free(smpl)
@@ -163,9 +169,10 @@ class LlamaContext: @unchecked Sendable {
         for _ in 0..<500 {
             if Task.isCancelled { break }
             
-            let id = llama_sampler_sample(smpl, ctx, batch.n_tokens - 1)
+            // Sample from the last token in the batch
+            let id = llama_sampler_sample(smpl, ctx, -1) // Changed from batch.n_tokens - 1
             
-            if id == llama_model_token_eos(mdl) { break }
+            if llama_vocab_is_eog(v, id) { break } // Changed from llama_model_token_eos(mdl)
             
             let piece = token_to_piece(token: id)
             onToken(piece)
@@ -187,29 +194,21 @@ class LlamaContext: @unchecked Sendable {
         }
     }
     
-    private func tokenize(text: String, addBos: Bool) -> [llama_token] {
-        guard let mdl = model.model else { return [] }
-        var tokens = [llama_token](repeating: 0, count: text.utf8.count + 8)
-        let n = llama_tokenize(mdl, text, Int32(text.utf8.count), &tokens, Int32(tokens.count), addBos, true)
-        if n < 0 {
-            tokens = [llama_token](repeating: 0, count: Int(-n))
-            let n2 = llama_tokenize(mdl, text, Int32(text.utf8.count), &tokens, Int32(tokens.count), addBos, true)
-            return Array(tokens.prefix(Int(n2)))
-        }
-        return Array(tokens.prefix(Int(n)))
+    private func tokenize(prompt: String) -> [llama_token] {
+        guard let v = vocab else { return [] }
+        let n_tokens = Int32(prompt.utf8.count) + 4 // Adjusted buffer size
+        var tokens = [llama_token](repeating: 0, count: Int(n_tokens))
+        let count = llama_tokenize(v, prompt, Int32(prompt.utf8.count), &tokens, n_tokens, true, true) // Using vocab-aware tokenize
+        if count < 0 { return [] } // Simplified error handling
+        return Array(tokens.prefix(Int(count)))
     }
     
     private func token_to_piece(token: llama_token) -> String {
-        guard let mdl = model.model else { return "" }
-        var buf = [CChar](repeating: 0, count: 128)
-        let n = llama_token_to_piece(mdl, token, &buf, Int32(buf.count), 0, false)
-        if n < 0 {
-            buf = [CChar](repeating: 0, count: Int(-n))
-            let n2 = llama_token_to_piece(mdl, token, &buf, Int32(buf.count), 0, false)
-            let data = Data(bytes: buf, count: Int(n2))
-            return String(data: data, encoding: .utf8) ?? ""
-        }
-        let data = Data(bytes: buf, count: Int(n))
+        guard let v = vocab else { return "" }
+        var result = [Int8](repeating: 0, count: 256)
+        let count = llama_token_to_piece(v, token, &result, 256, 0, true)
+        if count < 0 { return "" }
+        let data = Data(bytes: result.map { UInt8(bitPattern: $0) }, count: Int(count))
         return String(data: data, encoding: .utf8) ?? ""
     }
 }
