@@ -19,41 +19,63 @@ jobs:
     - name: Select Xcode Version
       run: sudo xcode-select -s /Applications/Xcode_16.app
 
-    - name: Configure Git for CRLF
-      run: |
-        git config --global core.autocrlf input
-        git config --global core.eol lf
-
     - name: Set up Local Packages
       run: |
         # Install and configure LFS
-        brew install git-lfs
+        brew install git-lfs 2>/dev/null || true
         git lfs install
         
         mkdir -p Packages
         git clone https://github.com/eastriverlee/LLM.swift.git Packages/LLM
         cd Packages/LLM
-        git lfs install
         git lfs pull
         
-        echo "--- Verifying LFS content ---"
-        ls -R llama.cpp
+        echo "--- Writing LLM Manifest via Heredoc ---"
+        cat <<'EOF' > Package.swift
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: "LLM",
+    platforms: [.macOS(.v13), .iOS(.v16)],
+    products: [
+        .library(name: "LLM", targets: ["LLM"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-syntax.git", exact: "600.0.1"),
+    ],
+    targets: [
+        .target(
+            name: "LLM",
+            dependencies: [
+                "llm",
+                "LLMMacrosImplementation",
+            ],
+            path: "Sources/LLM"
+        ),
+        .binaryTarget(
+            name: "llm",
+            path: "llama.cpp/llama.xcframework"
+        ),
+        Target.macro(
+            name: "LLMMacrosImplementation",
+            dependencies: [
+                Target.Dependency.product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                Target.Dependency.product(name: "SwiftCompilerPlugin", package: "swift-syntax")
+            ]
+        )
+    ]
+)
+EOF
         
-        # Copy the pre-verified manifest from the root of the workspace
-        # This avoids all generation/encoding issues on the runner
-        echo "--- Copying LLM_Package.swift to Package.swift ---"
-        cp "$GITHUB_WORKSPACE/LLM_Package.swift" Package.swift
-        
-        echo "--- Verified Package.swift ---"
+        echo "--- Verified LLM Package.swift ---"
+        ls -l Package.swift
         cat Package.swift
 
-    - name: Set up Swift
-      uses: swift-actions/setup-swift@v2
-      with:
-        swift-version: "6.0.3"
-
-    - name: Verify Swift Version
-      run: swift --version
+    - name: Verify Swift Toolchain
+      run: |
+        xcrun swift --version
+        which swift
 
     - name: Update Dependencies
       run: swift package update
