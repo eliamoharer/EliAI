@@ -17,34 +17,51 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode With iOS SDK
+        shell: bash
         run: |
           set -euo pipefail
 
-          select_xcode() {
-            for xcode in "$@"; do
-              echo "Trying $xcode"
-              sudo xcode-select -s "$xcode/Contents/Developer"
-              if xcrun --sdk iphoneos --show-sdk-version >/dev/null 2>&1; then
-                echo "Selected $xcode"
-                xcodebuild -version
-                xcrun --sdk iphoneos --show-sdk-version
-                return 0
-              fi
-            done
+          try_xcode() {
+            local xcode="$1"
+            echo "Trying $xcode"
+            sudo xcode-select -s "$xcode/Contents/Developer"
+            if xcrun --sdk iphoneos --show-sdk-version >/dev/null 2>&1; then
+              echo "Selected $xcode"
+              xcodebuild -version
+              xcrun --sdk iphoneos --show-sdk-version
+              return 0
+            fi
             return 1
           }
 
-          mapfile -t ALL_XCODES < <(ls -d /Applications/Xcode*.app 2>/dev/null | sort -Vr)
-          mapfile -t STABLE_XCODES < <(printf "%s\n" "${ALL_XCODES[@]}" | grep -vi "Release_Candidate" || true)
-          mapfile -t RC_XCODES < <(printf "%s\n" "${ALL_XCODES[@]}" | grep -i "Release_Candidate" || true)
+          ALL_XCODES="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -r || true)"
+          if [ -z "$ALL_XCODES" ]; then
+            echo "No Xcode installs found in /Applications."
+            exit 1
+          fi
 
-          # Prefer stable Xcode installs first, fallback to RC builds.
-          if [ "${#STABLE_XCODES[@]}" -gt 0 ] && select_xcode "${STABLE_XCODES[@]}"; then
-            exit 0
-          fi
-          if [ "${#RC_XCODES[@]}" -gt 0 ] && select_xcode "${RC_XCODES[@]}"; then
-            exit 0
-          fi
+          # Prefer stable installs first.
+          while IFS= read -r xcode; do
+            [ -z "$xcode" ] && continue
+            case "$xcode" in
+              *Release_Candidate*) continue ;;
+            esac
+            if try_xcode "$xcode"; then
+              exit 0
+            fi
+          done <<< "$ALL_XCODES"
+
+          # Fallback to RC installs.
+          while IFS= read -r xcode; do
+            [ -z "$xcode" ] && continue
+            case "$xcode" in
+              *Release_Candidate*) ;;
+              *) continue ;;
+            esac
+            if try_xcode "$xcode"; then
+              exit 0
+            fi
+          done <<< "$ALL_XCODES"
 
           echo "No installed Xcode with iphoneos SDK found."
           exit 1

@@ -35,7 +35,7 @@ class LLMEngine {
         try ModelValidator.validateModel(at: url)
     }
 
-    func loadModel(at url: URL) throws {
+    func loadModel(at url: URL) async throws {
         stopGeneration()
         loadError = nil
         generationError = nil
@@ -51,11 +51,19 @@ class LLMEngine {
                 category: .model
             )
 
+            let profile = validation.profile
             let modelURL = URL(fileURLWithPath: url.path)
-            let template = templateForProfile(validation.profile)
-            guard let loadedLLM = LLM(from: modelURL, template: template) else {
-                throw LLMEngineError.modelInitializationFailed
-            }
+            let loadedLLM: LLM = try await Task.detached(priority: .userInitiated) {
+                let template: Template
+                switch profile {
+                case .qwen3, .lfm25, .generic:
+                    template = .chatML("You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories.")
+                }
+                guard let loadedLLM = LLM(from: modelURL, template: template) else {
+                    throw LLMEngineError.modelInitializationFailed
+                }
+                return loadedLLM
+            }.value
 
             applySamplingPreset(validation.profile.sampling, to: loadedLLM)
 
@@ -80,45 +88,53 @@ class LLMEngine {
         isGenerating = true
         generationError = nil
 
-        return AsyncStream<String> { (continuation: AsyncStream<String>.Continuation) in
-            generationTask = Task(priority: .userInitiated) { [weak self] in
-                guard let self else {
-                    continuation.yield("Error: LLM engine is unavailable.")
-                    continuation.finish()
-                    return
-                }
+        let (stream, continuation) = AsyncStream<String>.makeStream()
 
-                guard let llm = self.llm else {
-                    continuation.yield("Error: No model loaded.")
-                    continuation.finish()
-                    self.isGenerating = false
-                    return
-                }
+        generationTask = Task(priority: .userInitiated) { [weak self] in
+            guard let self else {
+                continuation.yield("Error: LLM engine is unavailable.")
+                continuation.finish()
+                return
+            }
 
-                let profile = self.activeProfile
-                let clippedMessages = self.trimmedHistory(messages)
-                let prompt = profile.formatPrompt(messages: clippedMessages, systemPrompt: systemPrompt)
-                self.applySamplingPreset(profile.sampling, to: llm)
-
-                AppLogger.debug("Starting generation with profile \(profile.displayName).", category: .inference)
-
-                let rawOutput = await llm.getCompletion(from: prompt)
-                var output = String(describing: rawOutput)
-                if output.hasPrefix("Optional(\""), output.hasSuffix("\")"), output.count >= 12 {
-                    output = String(output.dropFirst(10).dropLast(2))
-                }
-                if !Task.isCancelled {
-                    let cleaned = output.replacingOccurrences(of: "<|im_end|>", with: "")
-                    continuation.yield(cleaned)
-                }
-
+            defer {
                 self.isGenerating = false
+                self.generationTask = nil
                 continuation.finish()
             }
+
+            guard let llm = self.llm else {
+                continuation.yield("Error: No model loaded.")
+                return
+            }
+
+            if Task.isCancelled {
+                return
+            }
+
+            let profile = self.activeProfile
+            let clippedMessages = self.trimmedHistory(messages)
+            let prompt = profile.formatPrompt(messages: clippedMessages, systemPrompt: systemPrompt)
+            self.applySamplingPreset(profile.sampling, to: llm)
+
+            AppLogger.debug("Starting generation with profile \(profile.displayName).", category: .inference)
+
+            let rawOutput = await llm.getCompletion(from: prompt)
+            var output = String(describing: rawOutput)
+            if output.hasPrefix("Optional(\""), output.hasSuffix("\")"), output.count >= 12 {
+                output = String(output.dropFirst(10).dropLast(2))
+            }
+            if !Task.isCancelled {
+                let cleaned = output.replacingOccurrences(of: "<|im_end|>", with: "")
+                continuation.yield(cleaned)
+            }
         }
+
+        return stream
     }
 
     func stopGeneration() {
+        llm?.stop()
         generationTask?.cancel()
         generationTask = nil
         isGenerating = false
@@ -155,14 +171,5 @@ class LLMEngine {
         }
 
         return included.reversed()
-    }
-
-    private func templateForProfile(_ profile: ModelProfile) -> Template {
-        switch profile {
-        case .qwen3, .lfm25:
-            return .chatML("You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories.")
-        case .generic:
-            return .chatML("You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories.")
-        }
     }
 }

@@ -128,19 +128,28 @@ struct ContentView: View {
     }
 
     private func attemptModelLoad(url: URL) {
-        do {
-            try llmEngine.loadModel(at: url)
-            didAttemptFallbackModel = false
-        } catch {
-            if !didAttemptFallbackModel,
-               let fallbackURL = modelDownloader.fallbackModelURL(excluding: url.lastPathComponent),
-               fallbackURL.lastPathComponent != url.lastPathComponent {
-                didAttemptFallbackModel = true
-                AppLogger.warning(
-                    "Switching to fallback model \(fallbackURL.lastPathComponent) after load failure.",
-                    category: .model
-                )
-                modelDownloader.activeModelName = fallbackURL.lastPathComponent
+        if llmEngine.isLoadingModel {
+            return
+        }
+        if llmEngine.isLoaded, llmEngine.modelPath == url.path {
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                try await llmEngine.loadModel(at: url)
+                didAttemptFallbackModel = false
+            } catch {
+                if !didAttemptFallbackModel,
+                   let fallbackURL = modelDownloader.fallbackModelURL(excluding: url.lastPathComponent),
+                   fallbackURL.lastPathComponent != url.lastPathComponent {
+                    didAttemptFallbackModel = true
+                    AppLogger.warning(
+                        "Switching to fallback model \(fallbackURL.lastPathComponent) after load failure.",
+                        category: .model
+                    )
+                    modelDownloader.activeModelName = fallbackURL.lastPathComponent
+                }
             }
         }
     }
