@@ -19,6 +19,11 @@ jobs:
     - name: Select Xcode Version
       run: sudo xcode-select -s /Applications/Xcode_16.app
 
+    - name: Configure Git for CRLF
+      run: |
+        git config --global core.autocrlf input
+        git config --global core.eol lf
+
     - name: Set up Local Packages
       run: |
         # Install and configure LFS
@@ -28,6 +33,7 @@ jobs:
         mkdir -p Packages
         git clone https://github.com/eastriverlee/LLM.swift.git Packages/LLM
         cd Packages/LLM
+        git lfs install
         git lfs pull
         
         echo "--- Verifying LFS content ---"
@@ -36,12 +42,9 @@ jobs:
         # Copy the pre-verified manifest from the root of the workspace
         # This avoids all generation/encoding issues on the runner
         echo "--- Copying LLM_Package.swift to Package.swift ---"
-        cp $GITHUB_WORKSPACE/LLM_Package.swift Package.swift
+        cp "$GITHUB_WORKSPACE/LLM_Package.swift" Package.swift
         
         echo "--- Verified Package.swift ---"
-        cat Package.swift
-        
-        echo "--- New Package.swift Content ---"
         cat Package.swift
 
     - name: Set up Swift
