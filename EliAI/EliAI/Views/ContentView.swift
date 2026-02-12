@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @State private var isChatVisible = false
@@ -38,6 +39,8 @@ struct ContentView: View {
             .ignoresSafeArea()
 
             GeometryReader { geometry in
+                let collapsedHeight: CGFloat = 110
+
                 VStack(spacing: 0) {
                     ChatView(
                         chatManager: chatManager,
@@ -51,14 +54,19 @@ struct ContentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: isChatVisible ? 0 : 30, style: .continuous))
                     .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: -5)
                 }
-                .offset(y: isChatVisible ? 0 : geometry.size.height - 120)
+                .frame(height: isChatVisible ? geometry.size.height : collapsedHeight, alignment: .top)
+                .offset(y: isChatVisible ? 0 : geometry.size.height - collapsedHeight)
                 .offset(y: dragOffset)
+                .clipped()
                 .gesture(
                     DragGesture()
                         .onChanged { value in
                             let translation = value.translation.height
                             if isChatVisible {
-                                if translation > 0 { dragOffset = translation }
+                                if translation > 0 {
+                                    dragOffset = translation
+                                    dismissKeyboard()
+                                }
                             } else if translation < 0 {
                                 dragOffset = translation
                             }
@@ -68,6 +76,9 @@ struct ContentView: View {
                             if isChatVisible {
                                 withAnimation(.spring()) {
                                     isChatVisible = !(value.translation.height > threshold)
+                                }
+                                if value.translation.height > threshold {
+                                    dismissKeyboard()
                                 }
                             } else {
                                 withAnimation(.spring()) {
@@ -146,5 +157,9 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }

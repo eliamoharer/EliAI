@@ -15,6 +15,12 @@ struct ChatView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            Capsule()
+                .fill(Color.primary.opacity(0.22))
+                .frame(width: 42, height: 5)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+
             // Header
             HStack {
                 Text(chatManager.currentSession?.title ?? "EliAI")
@@ -109,7 +115,9 @@ struct ChatView: View {
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(llmEngine.isGenerating ? Color.orange.opacity(0.1) : Color.green.opacity(0.1))
+                        .background {
+                            liquidRoundedBackground(cornerRadius: 12)
+                        }
                         .cornerRadius(12)
                     }
                     .disabled(llmEngine.isGenerating)
@@ -146,7 +154,9 @@ struct ChatView: View {
                                 .font(.caption)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Color.blue.opacity(0.1))
+                                .background {
+                                    liquidRoundedBackground(cornerRadius: 12)
+                                }
                                 .cornerRadius(12)
                             }
                         }
@@ -158,7 +168,14 @@ struct ChatView: View {
                 }
             }
             .padding()
-            .background(.thinMaterial)
+            .background(
+                RoundedRectangle(cornerRadius: 0, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        Rectangle()
+                            .fill(Color.white.opacity(0.12))
+                    )
+            )
             
             // Messages List
             ScrollViewReader { proxy in
@@ -246,7 +263,11 @@ struct ChatView: View {
                     if isGenerating { scrollToBottom(proxy: proxy) }
                 }
             }
-            .background(Color(UIColor.systemGroupedBackground))
+            .background(
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .overlay(Color.black.opacity(0.02))
+            )
             
             // Input Area
             VStack(spacing: 0) {
@@ -254,9 +275,15 @@ struct ChatView: View {
                 HStack(alignment: .bottom) {
                     TextField("Message...", text: $inputText, axis: .vertical)
                         .focused($isInputFocused)
-                        .padding(10)
-                        .background(Color(UIColor.secondarySystemBackground))
-                        .cornerRadius(20)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background {
+                            liquidRoundedBackground(cornerRadius: 22)
+                        }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .stroke(Color.white.opacity(0.35), lineWidth: 0.8)
+                        )
                         .lineLimit(1...5)
                         .disabled(!llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel)
                     
@@ -265,16 +292,30 @@ struct ChatView: View {
                             .font(.system(size: 32))
                             .foregroundColor(inputText.isEmpty ? .gray : .blue)
                     }
+                    .padding(5)
+                    .background {
+                        liquidCircleBackground()
+                    }
+                    .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 0.8))
+                    .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
                     .disabled(inputText.isEmpty || !llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel)
                 }
-                // Removed extra padding to sit flush against safe area if needed
-                // But usually we want some padding from edges.
-                // The critical part is observing keyboard or safe area.
                 .padding(.horizontal)
                 .padding(.top, 8)
-                .padding(.bottom, 8) // Add some internal padding
-                .background(.bar)
+                .padding(.bottom, 10)
             }
+            .background(
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.22), Color.white.opacity(0.03)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .ignoresSafeArea(edges: .bottom)
+            )
         }
         .fileImporter(
             isPresented: $showFileImporter,
@@ -384,6 +425,30 @@ struct ChatView: View {
             withAnimation {
                 proxy.scrollTo(lastId, anchor: .bottom)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func liquidRoundedBackground(cornerRadius: CGFloat) -> some View {
+        if #available(iOS 26.0, *) {
+            Color.clear
+                .glassEffect()
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(.ultraThinMaterial)
+        }
+    }
+
+    @ViewBuilder
+    private func liquidCircleBackground() -> some View {
+        if #available(iOS 26.0, *) {
+            Color.clear
+                .glassEffect()
+                .clipShape(Circle())
+        } else {
+            Circle()
+                .fill(.ultraThinMaterial)
         }
     }
 }
