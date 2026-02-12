@@ -110,6 +110,18 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     }
     
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        // Check for HTTP errors (e.g. 404, 403, or HTML redirects)
+        if let response = downloadTask.response as? HTTPURLResponse {
+            if response.statusCode != 200 {
+                DispatchQueue.main.async {
+                    self.error = "Server error: HTTP \(response.statusCode)"
+                    self.log = "Download failed: Server returned error \(response.statusCode)"
+                    self.isDownloading = false
+                }
+                return
+            }
+        }
+        
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
             DispatchQueue.main.async {
                 self.error = "FileSystem error"
