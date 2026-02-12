@@ -43,10 +43,41 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     
     // MARK: - URLSessionDownloadDelegate
     
+    func importLocalModel(from sourceURL: URL) {
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let destinationURL = documentsURL.appendingPathComponent(modelFileName)
+        
+        do {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+            
+            if sourceURL.startAccessingSecurityScopedResource() {
+                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                sourceURL.stopAccessingSecurityScopedResource()
+            } else {
+                // Try copying directly if not security scoped (e.g. from same app sandbox, unlikely but possible)
+                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            }
+            
+            self.localModelURL = destinationURL
+            self.downloadProgress = 1.0
+            self.error = nil
+        } catch {
+            self.error = "Import error: \(error.localizedDescription)"
+        }
+    }
+    
+    // MARK: - URLSessionDownloadDelegate
+    
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-        DispatchQueue.main.async {
-            self.downloadProgress = progress
+        // If totalBytesExpectedToWrite is -1 (unknown), we can't show accurate progress.
+        // HuggingFace usually sends Content-Length.
+        if totalBytesExpectedToWrite > 0 {
+            let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+            DispatchQueue.main.async {
+                self.downloadProgress = progress
+            }
         }
     }
     
@@ -71,6 +102,7 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
                 self.localModelURL = destinationURL
                 self.downloadProgress = 1.0
                 self.isDownloading = false
+                self.error = nil 
             }
         } catch {
             DispatchQueue.main.async {
@@ -83,8 +115,9 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if let error = error {
             DispatchQueue.main.async {
-                self.error = error.localizedDescription
+                self.error = "Download failed: \(error.localizedDescription)"
                 self.isDownloading = false
+                print("Download error: \(error)") // Log to console for debugging
             }
         }
     }

@@ -57,11 +57,22 @@ struct ContentView: View {
                         chatManager: chatManager,
                         llmEngine: llmEngine,
                         agentManager: agentManager,
-                        modelDownloader: modelDownloader // Pass modelDownloader
+                        modelDownloader: modelDownloader
                     )
                     .frame(height: geometry.size.height)
-                    .background(Color.white) // This will be overridden by ChatView's internal background
+                    .background(Color.white)
+                    // Removed bottom corner radius to stick to bottom
                     .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                    // We might want to mask the bottom corners if we want it "stuck"
+                    // Or just remove the clipShape entirely for a full sheet look?
+                    // User said "stuck to the bottom". 
+                    // Let's keep top corners rounded, bottom square.
+                    .mask(
+                        VStack(spacing: 0) {
+                            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                            Rectangle().frame(height: 30) // Extensions
+                        }
+                    ) 
                     .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: -5)
                 }
                 .offset(y: isChatVisible ? 0 : geometry.size.height - 120) // 120px peek
@@ -70,15 +81,12 @@ struct ContentView: View {
                     DragGesture()
                         .onChanged { value in
                             if isChatVisible {
-                                // Dragging down (positive) allowed
                                 if value.translation.height > 0 {
                                     dragOffset = value.translation.height
                                 } else {
-                                    // Elastic resistance dragging up
                                     dragOffset = value.translation.height / 3
                                 }
                             } else {
-                                // Dragging up (negative) allowed
                                 if value.translation.height < 0 {
                                     dragOffset = value.translation.height
                                 } else {
@@ -96,18 +104,18 @@ struct ContentView: View {
                                     }
                                 } else {
                                     withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                        isChatVisible = true // Snap back
+                                        isChatVisible = true
                                     }
                                 }
                             } else {
                                 if value.translation.height < -threshold {
                                     withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                                         isChatVisible = true
-                                        isExplorerOpaque = false // Ensure explicit focus on chat
+                                        isExplorerOpaque = false
                                     }
                                 } else {
                                     withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                        isChatVisible = false // Snap back
+                                        isChatVisible = false
                                     }
                                 }
                             }
@@ -118,18 +126,7 @@ struct ContentView: View {
                 )
             }
             
-            // Control Handle logic moved inside ChatView for cleaner UI or kept here overlay?
-            // Let's keep a visual cue if hidden
-            if !isChatVisible {
-                VStack {
-                    Spacer()
-                    Capsule()
-                        .fill(Color.gray.opacity(0.4))
-                        .frame(width: 40, height: 5)
-                        .padding(.bottom, 50)
-                        .allowsHitTesting(false)
-                }
-            }
+            // Removed visual cue (Capsule) as requested
         }
         .onAppear {
             modelDownloader.checkLocalModel()

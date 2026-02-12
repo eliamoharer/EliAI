@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ChatView: View {
     var chatManager: ChatManager
@@ -9,6 +10,7 @@ struct ChatView: View {
     
     @State private var inputText: String = ""
     @State private var isInputFocused: Bool = false
+    @State private var showFileImporter = false
     
     var body: some View {
         VStack(spacing: 0) {
@@ -36,18 +38,27 @@ struct ChatView: View {
                             .foregroundColor(.gray)
                     }
                 } else {
-                    Button(action: {
-                        modelDownloader.downloadModel()
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.down.circle")
-                            Text("Download Model")
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            showFileImporter = true
+                        }) {
+                            Image(systemName: "folder.badge.plus")
+                                .font(.system(size: 16))
                         }
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(12)
+                        
+                        Button(action: {
+                            modelDownloader.downloadModel()
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.down.circle")
+                                Text("Download")
+                            }
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.blue.opacity(0.1))
+                            .cornerRadius(12)
+                        }
                     }
                 }
             }
@@ -122,8 +133,19 @@ struct ChatView: View {
                     }
                     .disabled(inputText.isEmpty || !llmEngine.isLoaded || llmEngine.isGenerating)
                 }
-                .padding()
+                // Removed extra padding to sit flush against safe area if needed
+                // But usually we want some padding from edges.
+                // The critical part is observing keyboard or safe area.
+                .padding() 
                 .background(.bar)
+            }
+        }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [UTType.data], meansForeignResource: true) { result in
+            switch result {
+            case .success(let url):
+                modelDownloader.importLocalModel(from: url)
+            case .failure(let error):
+                print("Import failed: \(error.localizedDescription)")
             }
         }
     }
