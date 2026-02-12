@@ -34,6 +34,7 @@ jobs:
         printf "// swift-tools-version: 6.0\n" > Package.swift
         cat <<'EOF' | sed 's/^        //' >> Package.swift
         import PackageDescription
+        import CompilerPluginSupport
 
         let package = Package(
             name: "LLM",

@@ -1,5 +1,6 @@
 // swift-tools-version: 6.0
 import PackageDescription
+import CompilerPluginSupport
 
 let package = Package(
     name: "LLM",
