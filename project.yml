@@ -7,7 +7,7 @@ targets:
   EliAI:
     type: application
     platform: iOS
-    sources: [EliAI]
+    sources: [EliAI/EliAI]
     info:
       path: EliAI/EliAI/Info.plist
       properties:
@@ -18,8 +18,6 @@ targets:
       CURRENT_PROJECT_VERSION: 1
       MARKETING_VERSION: 1.0
       INFOPLIST_FILE: EliAI/EliAI/Info.plist
-      CODE_SIGNING_ALLOWED: NO
-      CODE_SIGNING_REQUIRED: NO
       SWIFT_COMPILATION_MODE: wholemodule
       OTHER_SWIFT_FLAGS:
         - -cxx-interoperability-mode=default
@@ -27,12 +25,31 @@ targets:
     dependencies:
       - package: LLM
         product: LLM
-      - package: swift-syntax
-        product: SwiftSyntaxMacros
       - sdk: Accelerate.framework
+    scheme:
+      testTargets:
+        - EliAITests
+        - EliAIUITests
+  EliAITests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - EliAI/Tests/EliAITests
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: EliAI
+  EliAIUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - EliAI/Tests/EliAIUITests
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      TEST_TARGET_NAME: EliAI
+    dependencies:
+      - target: EliAI
 packages:
   LLM:
-    path: Packages/LLM
-  swift-syntax:
-    url: https://github.com/apple/swift-syntax.git
-    from: 600.0.1
+    url: https://github.com/eastriverlee/LLM.swift.git
+    revision: 4c4e909ac4758c628c9cd263a0c25b6edff5526d

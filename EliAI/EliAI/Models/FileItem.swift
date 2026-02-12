@@ -1,7 +1,7 @@
 import Foundation
 
 struct FileItem: Identifiable, Hashable {
-    let id = UUID()
+    var id: String { path.path }
     let name: String
     let isDirectory: Bool
     var children: [FileItem]?

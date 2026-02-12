@@ -4,44 +4,33 @@ struct ContentView: View {
     @State private var isChatVisible = false
     @State private var isExplorerOpaque = false
     @State private var dragOffset: CGFloat = 0
-    
-    // Core Services
-    // In iOS 17 with @Observable, we just initialize them. 
-    // If they were ObservableObjects, we'd use @StateObject.
+    @State private var didAttemptFallbackModel = false
+
     @State private var fileSystem = FileSystemManager()
     @State private var llmEngine = LLMEngine()
     @State private var modelDownloader = ModelDownloader()
-    
-    // Derived Services
+
     @State private var chatManager: ChatManager
     @State private var agentManager: AgentManager
-    @State private var taskManager: TaskManager
-    @State private var memoryManager: MemoryManager
-    
+
     @State private var showingSettings = false
     @State private var showingNewChatDialog = false
-    
+
     init() {
         let fs = FileSystemManager()
         _fileSystem = State(initialValue: fs)
         _chatManager = State(initialValue: ChatManager(fileSystem: fs))
         _agentManager = State(initialValue: AgentManager(fileSystem: fs))
-        _taskManager = State(initialValue: TaskManager(fileSystem: fs))
-        _memoryManager = State(initialValue: MemoryManager(fileSystem: fs))
     }
-    
+
     var body: some View {
         ZStack {
-            // Background: File Explorer
             FileExplorerView(
                 fileSystem: fileSystem,
                 chatManager: chatManager,
-                modelDownloader: modelDownloader, // Pass modelDownloader
+                modelDownloader: modelDownloader,
                 isOpaque: isExplorerOpaque,
-                onSelectFile: { file in
-                    // Handle file selection (e.g. open in detail view or chat context)
-                    // For now, it just navigates within its own view hierarchy
-                },
+                onSelectFile: { _ in },
                 showingSettings: $showingSettings,
                 showingNewChatDialog: $showingNewChatDialog
             )
@@ -54,8 +43,7 @@ struct ContentView: View {
                 }
             }
             .ignoresSafeArea()
-            
-            // Foreground: Chat Layer
+
             GeometryReader { geometry in
                 VStack(spacing: 0) {
                     ChatView(
@@ -64,90 +52,95 @@ struct ContentView: View {
                         agentManager: agentManager,
                         modelDownloader: modelDownloader
                     )
-                    // Ensure full height
                     .frame(height: geometry.size.height)
                     .background(Color.white)
-                    // Clip top corners only.
                     .clipShape(RoundedRectangle(cornerRadius: isChatVisible ? 0 : 30, style: .continuous))
                     .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: -5)
                 }
-                // If chat is visible, offset is 0. If hidden/peaking, offset is height - peek.
-                // However, user said "chat still doesnt touch the bottom".
-                // If isChatVisible is true, offset is 0.
-                .offset(y: isChatVisible ? 0 : geometry.size.height - 120) 
+                .offset(y: isChatVisible ? 0 : geometry.size.height - 120)
                 .offset(y: dragOffset)
                 .gesture(
                     DragGesture()
                         .onChanged { value in
-                             // Simple drag logic
-                             let translation = value.translation.height
-                             if isChatVisible {
-                                 // Dragging down from full screen
-                                 if translation > 0 { dragOffset = translation }
-                             } else {
-                                 // Dragging up from peek
-                                 if translation < 0 { dragOffset = translation }
-                             }
+                            let translation = value.translation.height
+                            if isChatVisible {
+                                if translation > 0 { dragOffset = translation }
+                            } else if translation < 0 {
+                                dragOffset = translation
+                            }
                         }
                         .onEnded { value in
                             let threshold = geometry.size.height * 0.2
                             if isChatVisible {
-                                if value.translation.height > threshold {
-                                    withAnimation(.spring()) { isChatVisible = false }
-                                } else {
-                                    withAnimation(.spring()) { isChatVisible = true }
+                                withAnimation(.spring()) {
+                                    isChatVisible = !(value.translation.height > threshold)
                                 }
                             } else {
-                                if value.translation.height < -threshold {
-                                    withAnimation(.spring()) { isChatVisible = true }
-                                } else {
-                                    withAnimation(.spring()) { isChatVisible = false }
+                                withAnimation(.spring()) {
+                                    isChatVisible = value.translation.height < -threshold
                                 }
                             }
                             withAnimation { dragOffset = 0 }
                         }
                 )
             }
-        .sheet(isPresented: $showingNewChatDialog) {
-            NewChatDialog(isPresented: $showingNewChatDialog) { name in
-                chatManager.createNewSession(title: name)
+            .sheet(isPresented: $showingNewChatDialog) {
+                NewChatDialog(isPresented: $showingNewChatDialog) { name in
+                    chatManager.createNewSession(title: name)
+                }
             }
+            .sheet(isPresented: $showingSettings) {
+                NavigationView {
+                    SettingsView(modelDownloader: modelDownloader)
+                        .navigationBarItems(trailing: Button("Done") { showingSettings = false })
+                }
+            }
+            .padding(.bottom, 0)
         }
-        .sheet(isPresented: $showingSettings) {
-             NavigationView {
-                 SettingsView(modelDownloader: modelDownloader)
-                     .navigationBarItems(trailing: Button("Done") { showingSettings = false })
-             }
-        }
-            .padding(.bottom, 0) // Explicitly ensure no bottom padding
-
-            
-            // Removed visual cue (Capsule) as requested
-        }
-
         .onAppear {
+            if ProcessInfo.processInfo.arguments.contains("-disableAutoModelLoad") {
+                AppLogger.info("Auto model load disabled by launch argument.", category: .ui)
+                return
+            }
+
             modelDownloader.checkLocalModel()
             if let url = modelDownloader.localModelURL {
-                Task {
-                    try? await llmEngine.loadModel(at: url)
-                }
+                Task { await attemptModelLoad(url: url) }
             }
         }
-        .onChange(of: modelDownloader.localModelURL) { oldUrl, newUrl in
-            if let url = newUrl {
-                Task {
-                    try? await llmEngine.loadModel(at: url)
-                }
-            }
+        .onChange(of: modelDownloader.localModelURL) { _, newURL in
+            guard let url = newURL else { return }
+            Task { await attemptModelLoad(url: url) }
         }
-        .alert("Model Loading Error", isPresented: Binding(
-            get: { llmEngine.loadError != nil },
-            set: { _ in llmEngine.loadError = nil }
-        )) {
+        .alert(
+            "Model Loading Error",
+            isPresented: Binding(
+                get: { llmEngine.loadError != nil },
+                set: { _ in llmEngine.loadError = nil }
+            )
+        ) {
             Button("OK", role: .cancel) { }
         } message: {
             if let error = llmEngine.loadError {
                 Text(error)
+            }
+        }
+    }
+
+    private func attemptModelLoad(url: URL) async {
+        do {
+            try await llmEngine.loadModel(at: url)
+            didAttemptFallbackModel = false
+        } catch {
+            if !didAttemptFallbackModel,
+               let fallbackURL = modelDownloader.fallbackModelURL(excluding: url.lastPathComponent),
+               fallbackURL.lastPathComponent != url.lastPathComponent {
+                didAttemptFallbackModel = true
+                AppLogger.warning(
+                    "Switching to fallback model \(fallbackURL.lastPathComponent) after load failure.",
+                    category: .model
+                )
+                modelDownloader.activeModelName = fallbackURL.lastPathComponent
             }
         }
     }

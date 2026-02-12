@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 @Observable
 class MemoryManager {
@@ -13,12 +14,22 @@ class MemoryManager {
     
     func addMemory(title: String, content: String) {
         let filename = "memory/\(title.replacingOccurrences(of: " ", with: "_")).md"
-        try? fileSystem.createFile(path: filename, content: content)
+        do {
+            try fileSystem.createFile(path: filename, content: content)
+            AppLogger.info("Memory created: \(filename)", category: .agent)
+        } catch {
+            AppLogger.error("Failed to create memory: \(error.localizedDescription)", category: .agent)
+        }
     }
     
     func getMemories() -> [FileItem] {
-        return (try? fileSystem.listFiles(directory: "memory").map { 
-            FileItem(name: $0, isDirectory: false, children: nil, path: URL(fileURLWithPath: $0)) 
+        (try? fileSystem.listFiles(directory: "memory").map {
+            FileItem(
+                name: $0,
+                isDirectory: false,
+                children: nil,
+                path: fileSystem.documentsURL.appendingPathComponent("memory/\($0)")
+            )
         }) ?? []
     }
 }

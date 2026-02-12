@@ -1,78 +1,109 @@
 import SwiftUI
 
 struct SettingsView: View {
-    // We need access to modelDownloader here too
-    // In a real app, use EnvironmentObject
-    var modelDownloader: ModelDownloader? 
-    // Made optional to keep previews working easily, or passed from FileExplorerView
-    
+    var modelDownloader: ModelDownloader?
+
     var body: some View {
         Form {
-            Section(header: Text("Model Information")) {
-                if let downloader = modelDownloader {
-                    Text("Model: \(downloader.activeModelName)")
-                    
-                    if downloader.localModelURL != nil {
-                        HStack {
-                            Text("Status: Loaded & Ready")
-                            Spacer()
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
+            if let downloader = modelDownloader {
+                Section("Model Source") {
+                    Picker(
+                        "Download Model",
+                        selection: Binding(
+                            get: { downloader.selectedRemoteModelID },
+                            set: { downloader.selectedRemoteModelID = $0 }
+                        )
+                    ) {
+                        ForEach(downloader.remoteCatalog) { model in
+                            Text(model.displayName).tag(model.id)
                         }
+                    }
+                }
+
+                Section("Model Information") {
+                    Text("Active: \(downloader.activeModelName)")
+
+                    if downloader.localModelURL != nil {
+                        Label("Model verified and ready", systemImage: "checkmark.circle.fill")
+                            .foregroundColor(.green)
                     } else if downloader.isDownloading {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("Status: Downloading...")
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Downloading...")
                                 .foregroundColor(.orange)
                             ProgressView(value: downloader.downloadProgress)
                             Text("\(Int(downloader.downloadProgress * 100))%")
                                 .font(.caption)
-                                .foregroundColor(.gray)
+                                .foregroundColor(.secondary)
                         }
                     } else {
-                        HStack {
-                            Text("Status: Not Downloaded")
-                                .foregroundColor(.red)
-                            Spacer()
-                            Button("Download Qwen 3") {
-                                downloader.downloadModel()
-                            }
-                            .buttonStyle(.borderedProminent)
+                        Label("No valid model selected", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                    }
+
+                    if let error = downloader.error {
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+
+                Section("Download") {
+                    Button("Download Selected Model") {
+                        downloader.downloadModel()
+                    }
+                    .disabled(downloader.isDownloading)
+
+                    if downloader.isDownloading {
+                        Button("Cancel Download", role: .destructive) {
+                            downloader.cancelDownload()
                         }
                     }
-                    
-                    if let error = downloader.error {
-                        Text("Error: \(error)")
-                            .foregroundColor(.red)
-                            .font(.caption)
+                }
+
+                Section("Model Library") {
+                    if downloader.availableModels.isEmpty {
+                        Text("No local models found.")
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(downloader.availableModels, id: \.self) { model in
+                            HStack {
+                                Button(model) {
+                                    downloader.activeModelName = model
+                                }
+                                .buttonStyle(.plain)
+
+                                Spacer()
+
+                                if model == downloader.activeModelName {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.green)
+                                }
+
+                                Button(role: .destructive) {
+                                    downloader.deleteModel(named: model)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
                     }
-                } else {
-                    Text("Model service not available")
-                        .foregroundColor(.gray)
+                }
+            } else {
+                Section("Model Information") {
+                    Text("Model service unavailable.")
+                        .foregroundColor(.secondary)
                 }
             }
-            
-            Section(header: Text("Storage")) {
-                Button("Clear Chat History") {
-                    // This is handled via ChatManager
-                }
-                .foregroundColor(.red)
-                
-                if let downloader = modelDownloader, downloader.isDownloading {
-                     Button("Cancel Download") {
-                        downloader.cancelDownload()
-                     }
-                     .foregroundColor(.red)
-                }
-            }
-            
-            Section(header: Text("About")) {
+
+            Section("About") {
                 HStack {
                     Text("EliAI")
                     Spacer()
-                    Text("Feb 2026 Edition")
-                        .foregroundColor(.gray)
+                    Text("Feb 2026")
+                        .foregroundColor(.secondary)
                 }
-                Text("Powered by LLM.swift & Qwen 3")
+                Text("On-device GGUF inference for Qwen 3 and LFM 2.5 profiles.")
             }
         }
         .navigationTitle("Settings")

@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 @Observable
 class ChatManager {
@@ -10,6 +11,9 @@ class ChatManager {
     init(fileSystem: FileSystemManager) {
         self.fileSystem = fileSystem
         loadSessions()
+        if currentSession == nil {
+            currentSession = sessions.first
+        }
     }
     
     func createNewSession(title: String = "New Chat") {
@@ -17,6 +21,7 @@ class ChatManager {
         sessions.insert(session, at: 0)
         currentSession = session
         saveSession(session)
+        AppLogger.info("Created new chat session: \(title)", category: .app)
     }
     
     func loadSessions() {
@@ -34,8 +39,9 @@ class ChatManager {
                 }
             }
             self.sessions = newSessions.sorted(by: { $0.updatedAt > $1.updatedAt })
+            self.currentSession = self.sessions.first
         } catch {
-            print("Error loading sessions: \(error)")
+            AppLogger.error("Error loading sessions: \(error.localizedDescription)", category: .app)
         }
     }
     
@@ -46,7 +52,7 @@ class ChatManager {
                 try fileSystem.createFile(path: "chats/\(session.id.uuidString).json", content: jsonString)
             }
         } catch {
-            print("Error saving session: \(error)")
+            AppLogger.error("Error saving session: \(error.localizedDescription)", category: .app)
         }
     }
     
@@ -61,5 +67,6 @@ class ChatManager {
         }
         
         saveSession(session)
+        AppLogger.debug("Message appended role=\(message.role.rawValue)", category: .app)
     }
 }

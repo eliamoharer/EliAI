@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 struct TaskItem: Identifiable, Codable {
     let id: UUID
@@ -29,6 +30,7 @@ class TaskManager {
         let task = TaskItem(title: title, dueDate: dueDate)
         tasks.append(task)
         saveTasks()
+        AppLogger.info("Task created: \(title)", category: .agent)
     }
     
     func toggleTask(_ id: UUID) {
@@ -57,7 +59,7 @@ class TaskManager {
                 try fileSystem.createFile(path: taskFile, content: jsonString)
             }
         } catch {
-            print("Error saving tasks: \(error)")
+            AppLogger.error("Error saving tasks: \(error.localizedDescription)", category: .agent)
         }
     }
 }

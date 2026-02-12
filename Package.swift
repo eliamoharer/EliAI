@@ -1,6 +1,4 @@
 // swift-tools-version: 6.0
-// The swift-tools-version declares the minimum version of Swift required to build this package.
-
 import PackageDescription
 
 let package = Package(
@@ -14,14 +12,15 @@ let package = Package(
             targets: ["EliAI"]),
     ],
     dependencies: [
-        // State-of-the-Art 2026 LLM Wrapper (Local Patch Path)
-        .package(path: "Packages/LLM"),
-        // SwiftSyntax for 2026 Macros (Aligned with LLM.swift 600.0.1)
-        .package(url: "https://github.com/apple/swift-syntax.git", exact: "600.0.1")
+        .package(
+            url: "https://github.com/eastriverlee/LLM.swift.git",
+            revision: "4c4e909ac4758c628c9cd263a0c25b6edff5526d"
+        )
     ],
     targets: [
         .target(
             name: "EliAI",
+            path: "EliAI/EliAI",
             dependencies: [
                 .product(name: "LLM", package: "LLM")
             ],

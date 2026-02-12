@@ -30,6 +30,14 @@ struct ChatView: View {
                             .font(.caption2)
                             .foregroundColor(.gray)
                     }
+                } else if llmEngine.isLoadingModel {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.75)
+                        Text("Loading Model")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
                 } else if llmEngine.isLoaded {
                     Menu {
                         Section("Active Model") {
@@ -58,6 +66,14 @@ struct ChatView: View {
                                 }
                             } label: {
                                 Label("Unload Engine", systemImage: "power")
+                            }
+                        }
+
+                        if !llmEngine.modelWarnings.isEmpty {
+                            Section("Model Warnings") {
+                                ForEach(llmEngine.modelWarnings, id: \.self) { warning in
+                                    Text(warning)
+                                }
                             }
                         }
                     } label: {
@@ -210,14 +226,14 @@ struct ChatView: View {
                         .background(Color(UIColor.secondarySystemBackground))
                         .cornerRadius(20)
                         .lineLimit(1...5)
-                        .disabled(!llmEngine.isLoaded || llmEngine.isGenerating)
+                        .disabled(!llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel)
                     
                     Button(action: sendMessage) {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 32))
                             .foregroundColor(inputText.isEmpty ? .gray : .blue)
                     }
-                    .disabled(inputText.isEmpty || !llmEngine.isLoaded || llmEngine.isGenerating)
+                    .disabled(inputText.isEmpty || !llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel)
                 }
                 // Removed extra padding to sit flush against safe area if needed
                 // But usually we want some padding from edges.
@@ -228,20 +244,26 @@ struct ChatView: View {
                 .background(.bar)
             }
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [UTType.data], allowsMultipleSelection: false) { result in
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [UTType(filenameExtension: "gguf") ?? .data],
+            allowsMultipleSelection: false
+        ) { result in
             switch result {
             case .success(let urls):
                 if let url = urls.first {
                     modelDownloader.importLocalModel(from: url)
                 }
             case .failure(let error):
-                print("Import failed: \(error.localizedDescription)")
+                modelDownloader.error = "Import failed: \(error.localizedDescription)"
+                modelDownloader.log = "Import failed."
             }
         }
     }
     
     private func sendMessage() {
         guard !inputText.isEmpty else { return }
+        AppLogger.debug("User message submitted.", category: .ui)
         
         // Ensure a session exists
         if chatManager.currentSession == nil {
@@ -251,7 +273,6 @@ struct ChatView: View {
         // 1. User Message
         let userMessage = ChatMessage(role: .user, content: inputText)
         chatManager.addMessage(userMessage)
-        let prompt = inputText // Keep for reference if needed, but we use history now
         inputText = ""
         
         // Start Agent Loop
@@ -262,8 +283,11 @@ struct ChatView: View {
     
     private func runAgentLoop() async {
         var keepGenerating = true
+        var steps = 0
+        let maxSteps = 4
         
-        while keepGenerating {
+        while keepGenerating && steps < maxSteps {
+            steps += 1
             keepGenerating = false // Default to stop unless tool triggers continuation
             
             // 2. Assistant Generation
@@ -306,6 +330,14 @@ struct ChatView: View {
             if let session = chatManager.currentSession {
                 chatManager.saveSession(session)
             }
+        }
+
+        if steps >= maxSteps {
+            let warning = ChatMessage(
+                role: .system,
+                content: "Agent loop reached safety step limit. Please continue with a follow-up prompt."
+            )
+            chatManager.addMessage(warning)
         }
     }
     

@@ -25,11 +25,15 @@ struct FileExplorerView: View {
                 }
                 
                 Section(header: Text("Files")) {
-                    RecursiveFileView(items: items, onSelect: onSelectFile)
+                    RecursiveFileView(items: items) { item in
+                        selectedFile = item
+                        onSelectFile(item)
+                    }
                 }
             }
             .navigationTitle("Brain")
             .listStyle(SidebarListStyle())
+            .opacity(isOpaque ? 1.0 : 0.85)
             .onAppear {
                 items = fileSystem.getAllFilesRecursive()
             }

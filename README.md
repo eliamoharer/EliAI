@@ -1,12 +1,14 @@
 # EliAI - Local iOS Personal AI
 
-A local, privacy-first personal AI assistant for iOS, powered by the **HY-1.8B-2Bit-GGUF** model and `llama.cpp`.
+A local, privacy-first personal AI assistant for iOS, powered by `llama.cpp` through `LLM.swift`, with validated `.gguf` support for Qwen 3 and LFM 2.5 profiles.
 
 ## Features
 - **Local Inference**: Runs completely on-device.
 - **Agentic Capabilities**: Can create files, manage tasks, and set memories.
 - **Privacy Focus**: No data leaves your device.
 - **Unique UI**: Layered interface with a background file system and swipeable chat.
+- **Model Safety**: Preflight GGUF validation (magic bytes, minimum size, metadata hints).
+- **Model Recovery**: Automatic fallback to another valid local model when load fails.
 
 ## Project Structure
 - `EliAI/`: Source code (SwiftUI views, Core services).
@@ -40,9 +42,19 @@ If you have access to a Mac:
 ## Installation
 Sideload the `EliAI.ipa` file to your iPhone using **AltStore** or **SideStore**.
 
+## CI Pipeline (GitHub Actions)
+The workflow now runs:
+1. Package dependency resolution
+2. `build-for-testing` simulator build
+3. Launch smoke UI test
+4. Model preflight smoke unit test
+5. Release iOS build and IPA packaging
+
+`LLM.swift` is pinned to a fixed git revision in `project.yml` for deterministic builds.
+
 ## First Run
 1.  Open the app.
-2.  The app will automatically download the **HY-1.8B-2Bit-GGUF** model (~600MB) on the first launch.
+2.  The app can download a preset model (Qwen 3 or LFM 2.5), or import a local `.gguf` file.
 3.  Once the indicator turns **Green**, you can start chatting!
 
 ## Usage
