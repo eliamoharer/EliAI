@@ -27,8 +27,9 @@ jobs:
         git clone https://github.com/eastriverlee/LLM.swift.git Packages/LLM
         cd Packages/LLM
         git lfs pull
-
-        
+        sed -i '' 's/602.0.0/600.0.1/g' Package.swift
+        echo "--- Patched LLM Package.swift ---"
+        cat Package.swift
 
     - name: Set up Swift
       uses: swift-actions/setup-swift@v2
