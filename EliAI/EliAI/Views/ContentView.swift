@@ -104,7 +104,7 @@ struct ContentView: View {
                 )
             }
             .padding(.bottom, 0) // Explicitly ensure no bottom padding
-            .ignoresSafeArea(.keyboard) // critical for chat input
+
             
             // Removed visual cue (Capsule) as requested
         }

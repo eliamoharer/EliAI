@@ -9,7 +9,7 @@ struct ChatView: View {
     var modelDownloader: ModelDownloader
     
     @State private var inputText: String = ""
-    @State private var isInputFocused: Bool = false
+    @FocusState private var isInputFocused: Bool
     @State private var showFileImporter = false
     
     var body: some View {
@@ -125,6 +125,9 @@ struct ChatView: View {
                     }
                     .padding()
                 }
+                .onTapGesture {
+                    isInputFocused = false
+                }
                 .onChange(of: chatManager.currentSession?.messages.count) { _ in
                     scrollToBottom(proxy: proxy)
                 }
@@ -139,6 +142,7 @@ struct ChatView: View {
                 Divider()
                 HStack(alignment: .bottom) {
                     TextField("Message...", text: $inputText, axis: .vertical)
+                        .focused($isInputFocused)
                         .padding(10)
                         .background(Color(UIColor.secondarySystemBackground))
                         .cornerRadius(20)
