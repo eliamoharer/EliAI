@@ -33,50 +33,10 @@ jobs:
         echo "--- Verifying LFS content ---"
         ls -R llama.cpp
         
-        echo "--- Writing Package.swift via Python ---"
-        python3 -c "
-        import os
-        
-        manifest = [
-            '// swift-tools-version: 5.9',
-            'import PackageDescription',
-            '',
-            'let package = Package(',
-            '    name: \"LLM\",',
-            '    platforms: [.macOS(.v13), .iOS(.v16)],',
-            '    products: [',
-            '        .library(name: \"LLM\", targets: [\"LLM\"]),',
-            '    ],',
-            '    dependencies: [',
-            '        .package(url: \"https://github.com/apple/swift-syntax.git\", from: \"600.0.1\"),',
-            '    ],',
-            '    targets: [',
-            '        .target(',
-            '            name: \"LLM\",',
-            '            dependencies: [',
-            '                \"llm\",',
-            '                \"LLMMacrosImplementation\",',
-            '            ],',
-            '            path: \"Sources/LLM\"',
-            '        ),',
-            '        .binaryTarget(',
-            '            name: \"llm\",',
-            '            path: \"llama.cpp/llama.xcframework\"',
-            '        ),',
-            '        .macro(',
-            '            name: \"LLMMacrosImplementation\",',
-            '            dependencies: [',
-            '                .product(name: \"SwiftSyntaxMacros\", package: \"swift-syntax\"),',
-            '                .product(name: \"SwiftCompilerPlugin\", package: \"swift-syntax\")',
-            '            ]',
-            '        )',
-            '    ]',
-            ')'
-        ]
-        
-        with open('Package.swift', 'w') as f:
-            f.write('\n'.join(manifest))
-        "
+        # Copy the pre-verified manifest from the root of the workspace
+        # This avoids all generation/encoding issues on the runner
+        echo "--- Copying LLM_Package.swift to Package.swift ---"
+        cp $GITHUB_WORKSPACE/LLM_Package.swift Package.swift
         
         echo "--- Verified Package.swift ---"
         cat Package.swift
