@@ -15,13 +15,13 @@ let package = Package(
         .target(
             name: "LLM",
             dependencies: [
-                "llm",
+                "llama",
                 "LLMMacrosImplementation",
             ],
             path: "Sources/LLM"
         ),
         .binaryTarget(
-            name: "llm",
+            name: "llama",
             path: "llama.cpp/llama.xcframework"
         ),
         .macro(
