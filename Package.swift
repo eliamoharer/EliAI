@@ -14,14 +14,14 @@ let package = Package(
             targets: ["EliAI"]),
     ],
     dependencies: [
-        // Feb 2026 Llama Backend (Supports MXFP4 / Type 40)
-        .package(url: "https://github.com/mattt/llama.swift", branch: "main")
+        // State-of-the-Art 2026 LLM Wrapper
+        .package(url: "https://github.com/eastriverlee/LLM.swift", branch: "main")
     ],
     targets: [
         .target(
             name: "EliAI",
             dependencies: [
-                .product(name: "LlamaSwift", package: "llama.swift")
+                .product(name: "LLM", package: "LLM.swift")
             ],
             swiftSettings: [.interoperabilityMode(.Cxx)])
     ]

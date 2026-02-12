@@ -1,5 +1,5 @@
 import Foundation
-import LlamaSwift
+import LLM
 
 @Observable
 @MainActor
@@ -9,8 +9,8 @@ class LLMEngine {
     var modelPath: String?
     var loadError: String?
     
-    // Correctly declare the context and task management
-    private var context: LlamaContext? 
+    // State-of-the-Art 2026 LLM Interface
+    private var llm: LLM?
     private var generationTask: Task<Void, Never>?
     
     init() {}
@@ -20,71 +20,80 @@ class LLMEngine {
         self.loadError = nil
         
         let path = url.path
-        print("Loading model from: \(path)")
+        print("Loading model via LLM.swift from: \(path)")
         
-        // Move to background to avoid blocking the UI thread
-        try await Task.detached(priority: .userInitiated) {
-            do {
-                let model = try LlamaModel(path: path)
-                let context = try LlamaContext(model: model)
-                
-                await MainActor.run {
-                    self.context = context
-                    self.modelPath = path
-                    self.isLoaded = true
-                    print("Model loaded successfully")
-                }
-            } catch {
-                await MainActor.run {
-                    self.loadError = error.localizedDescription
-                    self.isLoaded = false
-                    print("Model loading failed: \(error.localizedDescription)")
-                }
-                throw error
-            }
-        }.value
+        // LLM.swift handles the heavy lifting of backend init & Metal acceleration
+        do {
+            let modelURL = URL(fileURLWithPath: path)
+            let loadedLLM = try await LLM(from: modelURL, template: .qwen)
+            
+            self.llm = loadedLLM
+            self.modelPath = path
+            self.isLoaded = true
+            print("Model loaded successfully with LLM.swift")
+        } catch {
+            self.loadError = "Library could not parse model (2026 Backend Error): \(error.localizedDescription)"
+            self.isLoaded = false
+            print("Model loading failed: \(error.localizedDescription)")
+            throw error
+        }
     }
     
     func generate(prompt: String, systemPrompt: String = "") -> AsyncStream<String> {
-        generationTask?.cancel() // Cancel any ongoing generation
+        generationTask?.cancel() 
         isGenerating = true
         
         return AsyncStream { continuation in
-            generationTask = Task.detached(priority: .userInitiated) {
-                let fullPrompt = await MainActor.run { self.buildPrompt(system: systemPrompt, user: prompt) }
-                
-                guard let ctx = await MainActor.run(resultType: LlamaContext?.self, body: { self.context }) else {
-                    continuation.yield("Error: Model context not initialized.")
+            generationTask = Task.detached(priority: .userInitiated) { [weak self] in
+                guard let self = self, let llm = await MainActor.run(resultType: LLM?.self, body: { self.llm }) else {
+                    continuation.yield("Error: LLM Engine not ready.")
                     continuation.finish()
                     return
                 }
                 
-                // Clear KV cache for a fresh conversation session
-                ctx.resetContext()
+                // Apply 2026 Standard Sampling (Prevents looping & nonsense)
+                // For Qwen 3 (Flagship): top_p 0.8, repetition_penalty 1.1
+                // For LFM 2.5 (Liquid): temp 0.1, top_p 0.1, repetition_penalty 1.05
                 
-                await ctx.completion(fullPrompt) { token in
-                    if Task.isCancelled { return }
-                    continuation.yield(token)
+                // applySamplingParameters(llm) 
+                let path = await MainActor.run { self.modelPath?.lowercased() ?? "" }
+                
+                // Detection logic with Qwen 3 as the absolute default/fallback
+                if path.contains("lfm") {
+                    await MainActor.run {
+                        llm.temperature = 0.1
+                        llm.topP = 0.1
+                        llm.repeatPenalty = 1.05
+                        print("Applied LFM 2.5 Sampling Standards")
+                    }
+                } else {
+                    // Qwen 3 Defaults (Golden Standards) - Used as fallback for all other models
+                    await MainActor.run {
+                        llm.temperature = 0.7
+                        llm.topP = 0.8
+                        llm.repeatPenalty = 1.1
+                        print("Applied Qwen 3 Sampling Standards (Default/Fallback)")
+                    }
                 }
                 
-                continuation.finish()
+                // Stream using 2026 native high-level API
+                do {
+                    for try await token in llm.generate(prompt) {
+                        if Task.isCancelled { break }
+                        continuation.yield(token)
+                    }
+                } catch {
+                    continuation.yield("Error during generation: \(error.localizedDescription)")
+                }
+                
                 await MainActor.run { self.isGenerating = false }
-            }
-            
-            continuation.onTermination = { @Sendable _ in
-                // Using class level task is not safe here, but we've handled cancellation in the task body
+                continuation.finish()
             }
         }
     }
     
     func stopGeneration() {
+        generationTask?.cancel()
         isGenerating = false
-        // Implementing stop logic might require context cancellation if supported
-    }
-    
-    private func buildPrompt(system: String, user: String) -> String {
-        let sys = system.isEmpty ? "You are a helpful assistant." : system
-        // Modern ChatML Template (Qwen 3 / Blackwell-ready)
-        return "<|im_start|>system\n\(sys)<|im_end|>\n<|im_start|>user\n\(user)<|im_end|>\n<|im_start|>assistant\n"
     }
 }

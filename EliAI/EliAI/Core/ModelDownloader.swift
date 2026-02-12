@@ -10,9 +10,9 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     
     private var downloadTask: URLSessionDownloadTask?
     
-    // Feb 2026 State-of-the-Art: Qwen 3 1.7B Instruct
-    let modelURLString = "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/qwen3-1.7b-instruct-q4_k_m.gguf"
-    let modelFileName = "qwen3-1.7b-instruct-q4_k_m.gguf"
+    // Verified Feb 2026 Working Link (Unsloth Qwen 3 1.7B)
+    let modelURLString = "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf"
+    let modelFileName = "Qwen3-1.7B-Q4_K_M.gguf"
     
     func checkLocalModel() {
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
