@@ -4,7 +4,7 @@ import llama
 // Fundamental Fix: Modernized LlamaWrapper for Official llama.cpp (b4600+)
 // Now features UI-accessible diagnostic logs.
 
-class LlamaModel {
+class LlamaModel: @unchecked Sendable {
     var model: OpaquePointer?
     
     // UI Diagnostic: Capture internal C++ errors
@@ -86,7 +86,7 @@ class LlamaModel {
     }
 }
 
-class LlamaContext {
+class LlamaContext: @unchecked Sendable {
     var context: OpaquePointer?
     var model: LlamaModel
     var batch: llama_batch
@@ -152,6 +152,7 @@ class LlamaContext {
         llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40))
         llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95, 1))
         llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.8))
+        llama_sampler_chain_add(smpl, llama_sampler_init_softmax()) // CRITICAL for non-greedy
         llama_sampler_chain_add(smpl, llama_sampler_init_dist(UInt32(Date().timeIntervalSince1970)))
         
         defer {
@@ -160,6 +161,8 @@ class LlamaContext {
         
         // 4. Generation Loop
         for _ in 0..<500 {
+            if Task.isCancelled { break }
+            
             let id = llama_sampler_sample(smpl, ctx, batch.n_tokens - 1)
             
             if id == llama_model_token_eos(mdl) { break }

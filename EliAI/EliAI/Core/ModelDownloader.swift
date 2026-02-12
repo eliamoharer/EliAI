@@ -10,8 +10,8 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     
     private var downloadTask: URLSessionDownloadTask?
     
-    // Updated URL: LiquidAI LFM 2.5 1.2B (Requested Model)
-    let modelURLString = "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/LFM2.5-1.2B-Instruct-Q4_K_M.gguf?download=true"
+    // Updated URL: LiquidAI LFM 2.5 1.2B (Recommended)
+    let modelURLString = "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
     let modelFileName = "LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
     
     func checkLocalModel() {

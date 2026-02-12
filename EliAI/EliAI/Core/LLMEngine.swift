@@ -21,39 +21,55 @@ class LLMEngine {
         let path = url.path
         print("Loading model from: \(path)")
         
-        do {
-            let model = try LlamaModel(path: path)
-            self.context = try LlamaContext(model: model)
-            
-            self.modelPath = path
-            self.isLoaded = true
-            print("Model loaded successfully")
-        } catch {
-            self.loadError = error.localizedDescription
-            self.isLoaded = false
-            print("Model loading failed: \(error.localizedDescription)")
-            throw error
-        }
+        // Move to background to avoid blocking the UI thread
+        try await Task.detached(priority: .userInitiated) {
+            do {
+                let model = try LlamaModel(path: path)
+                let context = try LlamaContext(model: model)
+                
+                await MainActor.run {
+                    self.context = context
+                    self.modelPath = path
+                    self.isLoaded = true
+                    print("Model loaded successfully")
+                }
+            } catch {
+                await MainActor.run {
+                    self.loadError = error.localizedDescription
+                    self.isLoaded = false
+                    print("Model loading failed: \(error.localizedDescription)")
+                }
+                throw error
+            }
+        }.value
     }
     
     func generate(prompt: String, systemPrompt: String = "") -> AsyncStream<String> {
         isGenerating = true
         
         return AsyncStream { continuation in
-            Task {
-                let fullPrompt = buildPrompt(system: systemPrompt, user: prompt)
+            let task = Task.detached(priority: .userInitiated) {
+                let fullPrompt = await MainActor.run { self.buildPrompt(system: systemPrompt, user: prompt) }
                 
-                // Real inference logic
-                if let context = self.context {
-                    await context.completion(fullPrompt) { token in
-                        continuation.yield(token)
-                    }
-                } else {
+                guard let ctx = await MainActor.run(resultType: LlamaContext?.self, body: { self.context }) else {
                     continuation.yield("Error: Model context not initialized.")
+                    continuation.finish()
+                    return
+                }
+                
+                // Clear KV cache for a fresh conversation session
+                ctx.resetContext()
+                
+                await ctx.completion(fullPrompt) { token in
+                    continuation.yield(token)
                 }
                 
                 continuation.finish()
-                isGenerating = false
+                await MainActor.run { self.isGenerating = false }
+            }
+            
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
             }
         }
     }
