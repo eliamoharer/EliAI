@@ -2,39 +2,49 @@ import Foundation
 import llama
 
 // Fundamental Fix: Modernized LlamaWrapper for Official llama.cpp (b4600+)
-// Optimized for iPhone 15 (A16) with LiquidAI LFM 2.5 support.
+// Now features UI-accessible diagnostic logs.
 
 class LlamaModel {
     var model: OpaquePointer?
+    
+    // UI Diagnostic: Capture internal C++ errors
+    static var lastLogMessages: [String] = []
     
     // Ensure backend is initialized exactly once
     private static let initializeBackend: Void = {
         print("LlamaWrapper: Initializing official llama.cpp backend...")
         llama_backend_init()
         
-        // Register a log callback to capture C++ errors
         llama_log_set({ level, text, user_data in
             if let text = text {
-                let message = String(cString: text)
-                print("LlamaLog [\(level)]: \(message.trimmingCharacters(in: .whitespacesAndNewlines))")
+                let message = String(cString: text).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !message.isEmpty {
+                    print("LlamaLog [\(level)]: \(message)")
+                    // Keep last 10 lines for UI error reporting
+                    LlamaModel.lastLogMessages.append(message)
+                    if LlamaModel.lastLogMessages.count > 10 {
+                        LlamaModel.lastLogMessages.removeFirst()
+                    }
+                }
             }
         }, nil)
     }()
     
     init(path: String) throws {
         _ = LlamaModel.initializeBackend
+        LlamaModel.lastLogMessages.removeAll() // Start fresh
         
-        print("LlamaWrapper: Loading model architecture for LFM compatibility...")
+        print("LlamaWrapper: Loading model architecture...")
         
-        // 1. Diagnostics
+        // 1. Pre-flight checks
         let attr = try FileManager.default.attributesOfItem(atPath: path)
         let fileSize = attr[FileAttributeKey.size] as? UInt64 ?? 0
-        print("LlamaWrapper: Physical file size: \(fileSize / 1024 / 1024) MB")
+        print("LlamaWrapper: File size: \(fileSize / 1024 / 1024) MB")
         
         if let fileHandle = FileHandle(forReadingAtPath: path) {
             if let data = try? fileHandle.read(upToCount: 4) {
                 if data != Data([0x47, 0x47, 0x55, 0x46]) {
-                    throw NSError(domain: "LlamaError", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid GGUF header. Download likely corrupted or manual error."])
+                    throw NSError(domain: "LlamaError", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid GGUF header. Download likely corrupted."])
                 }
             }
             try? fileHandle.close()
@@ -42,11 +52,9 @@ class LlamaModel {
 
         // 2. Load Model
         var m_params = llama_model_default_params()
-        m_params.n_gpu_layers = 16 // GPU offload for A16
-        m_params.use_mmap = false  // ESSENTIAL: Forced RAM load for iOS Sandbox stability
-        m_params.use_mlock = true  // Pin memory
-        
-        print("LlamaWrapper: System Info - \(String(cString: llama_print_system_info()))")
+        m_params.n_gpu_layers = 16 
+        m_params.use_mmap = false  
+        m_params.use_mlock = true  
         
         self.model = path.withCString { cPath in
             return llama_model_load_from_file(cPath, m_params)
@@ -61,17 +69,14 @@ class LlamaModel {
         }
         
         if self.model == nil {
-            throw NSError(domain: "LlamaError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Library could not parse LFM architecture. Ensure official llama.cpp master is linked."])
+            let logs = LlamaModel.lastLogMessages.joined(separator: "\n")
+            throw NSError(domain: "LlamaError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Library could not parse model. C++ Logs:\n\(logs)"])
         }
         
-        // Architecture verification
+        // Architecture diagnostics
         var arch = [CChar](repeating: 0, count: 64)
         llama_model_meta_val_str(self.model, "general.architecture", &arch, arch.count)
-        let archName = String(cString: arch)
-        print("LlamaWrapper: SUCCESS! Architecture detected: \(archName)")
-        
-        let n_vocab = llama_model_n_vocab(self.model)
-        print("LlamaWrapper: Model Vocab size: \(n_vocab)")
+        print("LlamaWrapper: SUCCESS! Architecture: \(String(cString: arch))")
     }
     
     deinit {
@@ -92,18 +97,17 @@ class LlamaContext {
         var c_params = llama_context_default_params()
         c_params.n_ctx = 2048
         c_params.n_batch = 2048
-        c_params.n_threads = 4       // Optimized for A16 (2P + 2E or 4E mix)
+        c_params.n_threads = 4
         c_params.n_threads_batch = 4
         
         self.context = llama_init_from_model(model.model, c_params)
         
         if self.context == nil {
-            throw NSError(domain: "LlamaError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Context initialization failed."])
+            let logs = LlamaModel.lastLogMessages.joined(separator: "\n")
+            throw NSError(domain: "LlamaError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create context. C++ Logs:\n\(logs)"])
         }
         
-        // Initialize batch (pre-allocated C arrays)
         self.batch = llama_batch_init(2048, 0, 1)
-        print("LlamaWrapper: Batch initialized with 2048 tokens capacity.")
     }
     
     deinit {
@@ -119,10 +123,8 @@ class LlamaContext {
         var tokens = tokenize(text: prompt, addBos: true)
         if tokens.isEmpty { return }
         
-        // Context sliding window (simplified: take last 2047)
         if tokens.count > 2047 { tokens = Array(tokens.suffix(2047)) }
         
-        // 1. Process Initial Prompt
         batch.n_tokens = Int32(tokens.count)
         for i in 0..<tokens.count {
             batch.token[i] = tokens[i]
@@ -131,16 +133,12 @@ class LlamaContext {
             batch.seq_id[i]![0] = 0
             batch.logits[i] = 0
         }
-        batch.logits[tokens.count - 1] = 1 // Only want logits for the last token
+        batch.logits[tokens.count - 1] = 1 
         
-        if llama_decode(ctx, batch) != 0 {
-            print("LlamaWrapper: Initial prompt decode failed.")
-            return
-        }
+        if llama_decode(ctx, batch) != 0 { return }
         
         var n_cur = Int32(tokens.count)
         
-        // 2. Generation Loop
         for _ in 0..<500 {
             let n_vocab = llama_model_n_vocab(mdl)
             let logits = llama_get_logits_ith(ctx, batch.n_tokens - 1)
@@ -158,18 +156,13 @@ class LlamaContext {
                 }
             }
             
-            if best_token_id == llama_model_token_eos(mdl) { 
-                print("LlamaWrapper: EOS encountered.")
-                break 
-            }
+            if best_token_id == llama_model_token_eos(mdl) { break }
             
             let piece = token_to_piece(token: best_token_id)
             onToken(piece)
             
-            // Check limits
             if n_cur >= 2048 { break }
             
-            // Prepare single-token batch for next step
             batch.n_tokens = 1
             batch.token[0] = best_token_id
             batch.pos[0] = n_cur
@@ -178,11 +171,7 @@ class LlamaContext {
             batch.logits[0] = 1
             
             n_cur += 1
-            if llama_decode(ctx, batch) != 0 {
-                print("LlamaWrapper: Decode failed in generation loop.")
-                break 
-            }
-            
+            if llama_decode(ctx, batch) != 0 { break }
             await Task.yield()
         }
     }
@@ -202,7 +191,6 @@ class LlamaContext {
     private func token_to_piece(token: llama_token) -> String {
         guard let mdl = model.model else { return "" }
         var buf = [CChar](repeating: 0, count: 128)
-        // llama_token_to_piece signature: (model, token, buf, length, lstrip, special)
         let n = llama_token_to_piece(mdl, token, &buf, Int32(buf.count), 0, false)
         if n < 0 {
             buf = [CChar](repeating: 0, count: Int(-n))
