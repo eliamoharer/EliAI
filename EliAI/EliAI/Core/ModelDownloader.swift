@@ -6,12 +6,13 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     var isDownloading = false
     var error: String?
     var localModelURL: URL?
+    var log: String = "Ready to load model." // New log property
     
     private var downloadTask: URLSessionDownloadTask?
     
-    // HY-1.8B-2Bit-GGUF
-    let modelURLString = "https://huggingface.co/AngelSlim/HY-1.8B-2Bit-GGUF/resolve/main/hy-1.8b-2bit.gguf"
-    let modelFileName = "hy-1.8b-2bit.gguf"
+    // Updated URL from user
+    let modelURLString = "https://huggingface.co/AngelSlim/HY-1.8B-2Bit-GGUF/resolve/main/hunyuan-q2_0.gguf"
+    let modelFileName = "hunyuan-q2_0.gguf"
     
     func checkLocalModel() {
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
@@ -44,27 +45,53 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     // MARK: - URLSessionDownloadDelegate
     
     func importLocalModel(from sourceURL: URL) {
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { 
+            self.log = "Error: Could not find documents directory."
+            return 
+        }
         let destinationURL = documentsURL.appendingPathComponent(modelFileName)
         
-        do {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try FileManager.default.removeItem(at: destinationURL)
-            }
-            
-            if sourceURL.startAccessingSecurityScopedResource() {
+        self.log = "Starting import from: \(sourceURL.lastPathComponent)..."
+        self.isDownloading = true // Use this to show activity
+        self.downloadProgress = 0.0
+        
+        Task {
+            do {
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    self.log = "Removing existing model file..."
+                    try FileManager.default.removeItem(at: destinationURL)
+                }
+                
+                let gotAccess = sourceURL.startAccessingSecurityScopedResource()
+                if !gotAccess {
+                    self.log = "Warning: Could not access security scoped resource. Attempting copy anyway..."
+                }
+                
+                defer {
+                    if gotAccess {
+                        sourceURL.stopAccessingSecurityScopedResource()
+                    }
+                }
+                
+                self.log = "Copying file (this may take a moment)..."
+                // Copying large files can block, so we run this on a background thread if possible, 
+                // but FileManager isn't async. We rely on Task priority.
                 try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-                sourceURL.stopAccessingSecurityScopedResource()
-            } else {
-                // Try copying directly if not security scoped (e.g. from same app sandbox, unlikely but possible)
-                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                
+                await MainActor.run {
+                    self.localModelURL = destinationURL
+                    self.downloadProgress = 1.0
+                    self.isDownloading = false
+                    self.error = nil
+                    self.log = "Import successful! Model ready: \(self.modelFileName)"
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = "Import error: \(error.localizedDescription)"
+                    self.log = "Import failed: \(error.localizedDescription)"
+                    self.isDownloading = false
+                }
             }
-            
-            self.localModelURL = destinationURL
-            self.downloadProgress = 1.0
-            self.error = nil
-        } catch {
-            self.error = "Import error: \(error.localizedDescription)"
         }
     }
     
@@ -116,9 +143,17 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         if let error = error {
             DispatchQueue.main.async {
                 self.error = "Download failed: \(error.localizedDescription)"
+                self.log = "Download failed: \(error.localizedDescription)"
                 self.isDownloading = false
                 print("Download error: \(error)") // Log to console for debugging
             }
+        }
+    }
+    
+    // Helper to update log
+    private func updateLog(_ message: String) {
+        DispatchQueue.main.async {
+            self.log = message
         }
     }
 }

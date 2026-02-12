@@ -26,9 +26,10 @@ struct ChatView: View {
                         ProgressView(value: modelDownloader.downloadProgress)
                             .progressViewStyle(LinearProgressViewStyle())
                             .frame(width: 100)
-                        Text("\(Int(modelDownloader.downloadProgress * 100))%")
+                        Text(modelDownloader.log) // Show log/status
                             .font(.caption2)
                             .foregroundColor(.gray)
+                            .lineLimit(1)
                     }
                 } else if llmEngine.isLoaded {
                     HStack(spacing: 4) {
@@ -69,7 +70,7 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 16) {
-                        // Introduction / Empty State
+                        // Introduction / Empty State / Loading State
                         if (chatManager.currentSession?.messages.isEmpty ?? true) {
                             VStack(spacing: 16) {
                                 Text("EliAI")
@@ -77,10 +78,29 @@ struct ChatView: View {
                                     .fontWeight(.bold)
                                     .foregroundColor(.blue.opacity(0.5))
                                     .padding(.top, 40)
-                                Text("How can I help you today?")
-                                    .font(.title3)
-                                    .fontWeight(.medium)
-                                    .foregroundColor(.gray)
+                                    
+                                if modelDownloader.isDownloading {
+                                    VStack(spacing: 8) {
+                                        ProgressView()
+                                        Text(modelDownloader.log)
+                                            .font(.caption)
+                                            .foregroundColor(.gray)
+                                            .multilineTextAlignment(.center)
+                                            .padding(.horizontal)
+                                    }
+                                } else if !llmEngine.isLoaded {
+                                     Text("No model loaded.")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                     Text("Download or import a .gguf model to start.")
+                                        .font(.caption2)
+                                        .foregroundColor(.gray.opacity(0.8))
+                                } else {
+                                    Text("How can I help you today?")
+                                        .font(.title3)
+                                        .fontWeight(.medium)
+                                        .foregroundColor(.gray)
+                                }
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.top, 40)
@@ -91,7 +111,7 @@ struct ChatView: View {
                                 .id(message.id)
                         }
                         
-                        if llmEngine.isGenerating {
+                        // ... rest of the view
                             HStack {
                                 ProgressView()
                                     .padding(.trailing, 4)
@@ -154,6 +174,11 @@ struct ChatView: View {
     private func sendMessage() {
         guard !inputText.isEmpty else { return }
         
+        // Ensure a session exists
+        if chatManager.currentSession == nil {
+            chatManager.createNewSession()
+        }
+        
         // 1. User Message
         let userMessage = ChatMessage(role: .user, content: inputText)
         chatManager.addMessage(userMessage)
@@ -171,10 +196,20 @@ struct ChatView: View {
             for await token in stream {
                 fullResponse += token
                 DispatchQueue.main.async {
+                    // Update local reference
                     assistantMessage.content = fullResponse
-                    if var session = chatManager.currentSession {
-                        session.messages[session.messages.count - 1] = assistantMessage
-                        chatManager.currentSession = session 
+                    
+                    // Update model safely
+                    if var session = chatManager.currentSession, !session.messages.isEmpty {
+                        // Find the index of the placeholder message we just added
+                        // We assume it's the last one, but let's be safe against race conditions
+                        // In a real high-concurrency app, we'd use IDs.
+                        // Here, last is safe enough for single-user stream.
+                        let lastIndex = session.messages.count - 1
+                        if lastIndex >= 0 {
+                            session.messages[lastIndex] = assistantMessage
+                            chatManager.currentSession = session
+                        }
                     }
                 }
             }
@@ -185,7 +220,9 @@ struct ChatView: View {
                 chatManager.addMessage(toolMessage)
             }
             
-            chatManager.saveSession(chatManager.currentSession!)
+            if let session = chatManager.currentSession {
+                chatManager.saveSession(session)
+            }
         }
     }
     
