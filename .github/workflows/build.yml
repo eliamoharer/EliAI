@@ -16,6 +16,16 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
+    - name: Cache Swift Packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          .build
+          ~/Library/Developer/Xcode/DerivedData
+        key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved', '**/project.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-spm-
+
     - name: Set up Swift
       uses: swift-actions/setup-swift@v1
       with:
@@ -41,6 +51,7 @@ jobs:
           -derivedDataPath build \
           -skipPackagePluginValidation \
           -skipMacroValidation \
+          OTHER_SWIFT_FLAGS="$(inherited) -enable-experimental-feature Macros" \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO

@@ -78,7 +78,10 @@ class LLMEngine {
                 
                 // Stream using 2026 native high-level API
                 do {
-                    for try await token in llm.generate(prompt) {
+                    // Qwen 3 / ChatML Formatting
+                    let formattedPrompt = "<|im_start|>system\n\(systemPrompt.isEmpty ? "You are EliAI, a helpful assistant." : systemPrompt)<|im_end|>\n<|im_start|>user\n\(prompt)<|im_end|>\n<|im_start|>assistant\n"
+                    
+                    for try await token in llm.generate(formattedPrompt) {
                         if Task.isCancelled { break }
                         continuation.yield(token)
                     }

@@ -12,11 +12,12 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     
     // Verified Feb 2026 Working Link (Unsloth Qwen 3 1.7B)
     let modelURLString = "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf"
-    let modelFileName = "Qwen3-1.7B-Q4_K_M.gguf"
+    // activeModelName tracks the currently loaded or targeted file
+    var activeModelName: String = "Qwen3-1.7B-Q4_K_M.gguf"
     
     func checkLocalModel() {
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
-        let fileURL = documentsURL.appendingPathComponent(modelFileName)
+        let fileURL = documentsURL.appendingPathComponent(activeModelName)
         
         if FileManager.default.fileExists(atPath: fileURL.path) {
             // Validate GGUF Header
@@ -57,13 +58,11 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     // MARK: - URLSessionDownloadDelegate
     
     func importLocalModel(from sourceURL: URL) {
-        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { 
-            self.log = "Error: Could not find documents directory."
-            return 
-        }
-        let destinationURL = documentsURL.appendingPathComponent(modelFileName)
+        let fileName = sourceURL.lastPathComponent
+        let destinationURL = documentsURL.appendingPathComponent(fileName)
         
-        self.log = "Starting import from: \(sourceURL.lastPathComponent)..."
+        self.log = "Starting import from: \(fileName)..."
+        self.activeModelName = fileName
         self.isDownloading = true // Use this to show activity
         self.downloadProgress = 0.0
         
@@ -141,7 +140,7 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
             return
         }
         
-        let destinationURL = documentsURL.appendingPathComponent(modelFileName)
+        let destinationURL = documentsURL.appendingPathComponent(activeModelName)
         
         do {
             if FileManager.default.fileExists(atPath: destinationURL.path) {
