@@ -80,8 +80,8 @@ class LLMEngine {
         isGenerating = true
         generationError = nil
 
-        return AsyncStream { continuation in
-            continuation.onTermination = { [weak self] _ in
+        return AsyncStream<String>(bufferingPolicy: .unbounded) { continuation in
+            continuation.onTermination = { [weak self] (_: AsyncStream<String>.Continuation.Termination) in
                 Task { @MainActor in
                     self?.stopGeneration()
                 }
