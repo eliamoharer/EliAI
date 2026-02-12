@@ -21,14 +21,26 @@ jobs:
 
     - name: Set up Local Packages
       run: |
+        # Install and configure LFS
         brew install git-lfs
         git lfs install
+        
         mkdir -p Packages
         git clone https://github.com/eastriverlee/LLM.swift.git Packages/LLM
         cd Packages/LLM
         git lfs pull
-        sed -i '' 's/602.0.0/600.0.1/g' Package.swift
-        echo "--- Patched LLM Package.swift ---"
+        
+        echo "--- Verifying LFS content ---"
+        ls -R llama.cpp
+        
+        echo "--- Original Package.swift ---"
+        cat Package.swift
+        
+        # Patch dependency to 600.0.1 to match root project
+        # Using a broad regex to catch 'from: "602.0.0"' or similar
+        sed -i '' 's/602\.0\.0/600.0.1/g' Package.swift
+        
+        echo "--- Patched Package.swift ---"
         cat Package.swift
 
     - name: Set up Swift
