@@ -111,7 +111,7 @@ struct ChatView: View {
                                 .id(message.id)
                         }
                         
-                        // ... rest of the view
+                        if llmEngine.isGenerating {
                             HStack {
                                 ProgressView()
                                     .padding(.trailing, 4)
@@ -201,10 +201,6 @@ struct ChatView: View {
                     
                     // Update model safely
                     if var session = chatManager.currentSession, !session.messages.isEmpty {
-                        // Find the index of the placeholder message we just added
-                        // We assume it's the last one, but let's be safe against race conditions
-                        // In a real high-concurrency app, we'd use IDs.
-                        // Here, last is safe enough for single-user stream.
                         let lastIndex = session.messages.count - 1
                         if lastIndex >= 0 {
                             session.messages[lastIndex] = assistantMessage
