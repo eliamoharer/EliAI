@@ -23,6 +23,9 @@ let package = Package(
             dependencies: [
                 .product(name: "LLM", package: "LLM")
             ],
-            swiftSettings: [.interoperabilityMode(.Cxx)])
+            swiftSettings: [
+                .interoperabilityMode(.Cxx),
+                .enableExperimentalFeature("Macros")
+            ])
     ]
 )

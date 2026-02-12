@@ -28,7 +28,7 @@ jobs:
       run: xcodegen generate
 
     - name: Resolve Dependencies
-      run: xcodebuild -resolvePackageDependencies -project EliAI.xcodeproj -scheme EliAI
+      run: xcodebuild -resolvePackageDependencies -project EliAI.xcodeproj -scheme EliAI -skipPackagePluginValidation
 
     - name: Build App
       # Build the generated project
@@ -39,6 +39,8 @@ jobs:
           -sdk iphoneos \
           -configuration Release \
           -derivedDataPath build \
+          -skipPackagePluginValidation \
+          -skipMacroValidation \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO
