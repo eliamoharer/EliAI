@@ -33,14 +33,45 @@ jobs:
         echo "--- Verifying LFS content ---"
         ls -R llama.cpp
         
-        echo "--- Original Package.swift ---"
-        cat Package.swift
+        echo "--- Overwriting Package.swift ---"
+        cat <<EOF > Package.swift
+        // swift-tools-version: 5.9
+        import PackageDescription
         
-        # Patch dependency to 600.0.1 to match root project
-        # Using a broad regex to catch 'from: "602.0.0"' or similar
-        sed -i '' 's/602\.0\.0/600.0.1/g' Package.swift
+        let package = Package(
+            name: "LLM",
+            platforms: [.macOS(.v13), .iOS(.v16)],
+            products: [
+                .library(name: "LLM", targets: ["LLM"]),
+            ],
+            dependencies: [
+                .package(url: "https://github.com/apple/swift-syntax.git", from: "600.0.1"),
+            ],
+            targets: [
+                .target(
+                    name: "LLM",
+                    dependencies: [
+                        "llm",
+                        "LLMMacrosImplementation",
+                    ],
+                    path: "Sources/LLM"
+                ),
+                .binaryTarget(
+                    name: "llm",
+                    path: "llama.cpp/llama.xcframework"
+                ),
+                .macro(
+                    name: "LLMMacrosImplementation",
+                    dependencies: [
+                        .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                        .product(name: "SwiftCompilerPlugin", package: "swift-syntax")
+                    ]
+                )
+            ]
+        )
+        EOF
         
-        echo "--- Patched Package.swift ---"
+        echo "--- New Package.swift Content ---"
         cat Package.swift
 
     - name: Set up Swift
