@@ -26,10 +26,9 @@ struct ChatView: View {
                         ProgressView(value: modelDownloader.downloadProgress)
                             .progressViewStyle(LinearProgressViewStyle())
                             .frame(width: 100)
-                        Text(modelDownloader.log) // Show log/status
+                        Text(modelDownloader.log)
                             .font(.caption2)
                             .foregroundColor(.gray)
-                            .lineLimit(1)
                     }
                 } else if llmEngine.isLoaded {
                     HStack(spacing: 4) {
@@ -39,26 +38,34 @@ struct ChatView: View {
                             .foregroundColor(.gray)
                     }
                 } else {
-                    HStack(spacing: 8) {
-                        Button(action: {
-                            showFileImporter = true
-                        }) {
-                            Image(systemName: "folder.badge.plus")
-                                .font(.system(size: 16))
+                    VStack(alignment: .trailing, spacing: 4) {
+                        if modelDownloader.error != nil {
+                            Text(modelDownloader.log)
+                                .font(.caption2)
+                                .foregroundColor(.red)
                         }
                         
-                        Button(action: {
-                            modelDownloader.downloadModel()
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "arrow.down.circle")
-                                Text("Download")
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                showFileImporter = true
+                            }) {
+                                Image(systemName: "folder.badge.plus")
+                                    .font(.system(size: 16))
                             }
-                            .font(.caption)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.blue.opacity(0.1))
-                            .cornerRadius(12)
+                            
+                            Button(action: {
+                                modelDownloader.downloadModel()
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.down.circle")
+                                    Text("Download")
+                                }
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(12)
+                            }
                         }
                     }
                 }

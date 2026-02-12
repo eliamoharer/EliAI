@@ -10,17 +10,28 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     
     private var downloadTask: URLSessionDownloadTask?
     
-    // Updated URL: LiquidAI LFM 2.5 1.2B (Recommended)
-    let modelURLString = "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
-    let modelFileName = "LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
+    // Default Model: Llama 3.2 1B Instruct (Highly Stable & High Performance)
+    let modelURLString = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
+    let modelFileName = "Llama-3.2-1B-Instruct-Q4_K_M.gguf"
     
     func checkLocalModel() {
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let fileURL = documentsURL.appendingPathComponent(modelFileName)
         
         if FileManager.default.fileExists(atPath: fileURL.path) {
-            self.localModelURL = fileURL
-            self.downloadProgress = 1.0
+            // Validate GGUF Header
+            if let fileHandle = try? FileHandle(forReadingFrom: fileURL) {
+                if let data = try? fileHandle.read(upToCount: 4), data == Data([0x47, 0x47, 0x55, 0x46]) {
+                    self.localModelURL = fileURL
+                    self.downloadProgress = 1.0
+                    self.log = "Model verified and ready."
+                } else {
+                    self.error = "Corrupted model detected. Please redownload."
+                    self.log = "Failed: Invalid GGUF header."
+                    try? FileManager.default.removeItem(at: fileURL)
+                }
+                try? fileHandle.close()
+            }
         }
     }
     

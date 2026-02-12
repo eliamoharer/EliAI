@@ -148,7 +148,10 @@ class LlamaContext: @unchecked Sendable {
         }
         batch.logits[Int(batch.n_tokens) - 1] = 1
         
-        if llama_decode(ctx, batch) != 0 { return }
+        if llama_decode(ctx, batch) != 0 { 
+            onToken("Error: Decoder failed to process prompt. Check GGUF compatibility.")
+            return 
+        }
         
         var n_cur = Int32(tokens.count)
         
