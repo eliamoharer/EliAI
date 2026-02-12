@@ -21,7 +21,7 @@ let package = Package(
         .target(
             name: "EliAI",
             dependencies: [
-                .product(name: "LLM", package: "LLM.swift")
+                .product(name: "LLM", package: "LLM")
             ],
             swiftSettings: [.interoperabilityMode(.Cxx)])
     ]
