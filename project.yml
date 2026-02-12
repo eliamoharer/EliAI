@@ -32,8 +32,7 @@ targets:
       - sdk: Accelerate.framework
 packages:
   LLM:
-    url: https://github.com/eastriverlee/LLM.swift
-    branch: main
+    path: Packages/LLM
   swift-syntax:
     url: https://github.com/apple/swift-syntax.git
-    exact: 600.0.1
+    from: 602.0.0

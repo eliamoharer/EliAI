@@ -14,10 +14,10 @@ let package = Package(
             targets: ["EliAI"]),
     ],
     dependencies: [
-        // State-of-the-Art 2026 LLM Wrapper (Explicit Identification)
-        .package(name: "LLM", url: "https://github.com/eastriverlee/LLM.swift", branch: "main"),
-        // SwiftSyntax for 2026 Macros (Aligned with Swift 6.0.3)
-        .package(url: "https://github.com/apple/swift-syntax.git", exact: "600.0.1")
+        // State-of-the-Art 2026 LLM Wrapper (Local Patch Path)
+        .package(path: "Packages/LLM"),
+        // SwiftSyntax for 2026 Macros (Aligned with LLM.swift 602.0.0)
+        .package(url: "https://github.com/apple/swift-syntax.git", from: "602.0.0")
     ],
     targets: [
         .target(
