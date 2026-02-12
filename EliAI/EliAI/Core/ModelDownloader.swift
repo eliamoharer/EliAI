@@ -10,12 +10,26 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     
     private var downloadTask: URLSessionDownloadTask?
     
+    override init() {
+        super.init()
+        checkLocalModel()
+        refreshAvailableModels()
+    }
+    
     // Verified Feb 2026 Working Link (Unsloth Qwen 3 1.7B)
     let modelURLString = "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf"
-    // activeModelName tracks the currently loaded or targeted file
-    var activeModelName: String = "Qwen3-1.7B-Q4_K_M.gguf"
+    
+    // Persist active model name across launches
+    var activeModelName: String {
+        get { UserDefaults.standard.string(forKey: "activeModelName") ?? "Qwen3-1.7B-Q4_K_M.gguf" }
+        set { 
+            UserDefaults.standard.set(newValue, forKey: "activeModelName")
+            checkLocalModel() // Re-check whenever the name changes
+        }
+    }
     
     func checkLocalModel() {
+        refreshAvailableModels()
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let fileURL = documentsURL.appendingPathComponent(activeModelName)
         
@@ -30,10 +44,33 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
                     self.error = "Corrupted model detected. Please redownload."
                     self.log = "Failed: Invalid GGUF header."
                     try? FileManager.default.removeItem(at: fileURL)
+                    refreshAvailableModels()
                 }
                 try? fileHandle.close()
             }
+        } else {
+            self.localModelURL = nil
+            self.log = "Ready to load model."
         }
+    }
+    
+    var availableModels: [String] = []
+    
+    func refreshAvailableModels() {
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let contents = try? FileManager.default.contentsOfDirectory(atPath: documentsURL.path)
+        self.availableModels = contents?.filter { $0.hasSuffix(".gguf") } ?? []
+    }
+    
+    func deleteModel(named name: String) {
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let fileURL = documentsURL.appendingPathComponent(name)
+        try? FileManager.default.removeItem(at: fileURL)
+        if name == activeModelName {
+            localModelURL = nil
+            activeModelName = "Qwen3-1.7B-Q4_K_M.gguf" // Reset to default
+        }
+        refreshAvailableModels()
     }
     
     func downloadModel() {
@@ -58,6 +95,7 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     // MARK: - URLSessionDownloadDelegate
     
     func importLocalModel(from sourceURL: URL) {
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
         let fileName = sourceURL.lastPathComponent
         let destinationURL = documentsURL.appendingPathComponent(fileName)
         
@@ -94,7 +132,7 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
                     self.downloadProgress = 1.0
                     self.isDownloading = false
                     self.error = nil
-                    self.log = "Import successful! Model ready: \(self.modelFileName)"
+                    self.log = "Import successful! Model ready: \(self.activeModelName)"
                 }
             } catch {
                 await MainActor.run {

@@ -31,12 +31,51 @@ struct ChatView: View {
                             .foregroundColor(.gray)
                     }
                 } else if llmEngine.isLoaded {
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.green).frame(width: 8, height: 8)
-                        Text("Ready")
-                            .font(.caption)
-                            .foregroundColor(.gray)
+                    Menu {
+                        Section("Active Model") {
+                            ForEach(modelDownloader.availableModels, id: \.self) { model in
+                                Button {
+                                    modelDownloader.activeModelName = model
+                                } label: {
+                                    HStack {
+                                        Text(model)
+                                        if model == modelDownloader.activeModelName {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Section {
+                            Button(action: { showFileImporter = true }) {
+                                Label("Import New (.gguf)...", systemImage: "folder.badge.plus")
+                            }
+                            
+                            Button(role: .destructive) {
+                                withAnimation {
+                                    llmEngine.unloadModel()
+                                }
+                            } label: {
+                                Label("Unload Engine", systemImage: "power")
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Circle().fill(llmEngine.isGenerating ? Color.orange : Color.green).frame(width: 8, height: 8)
+                            Text(llmEngine.isGenerating ? "Processing" : "Ready")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 8))
+                                .foregroundColor(.gray)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(llmEngine.isGenerating ? Color.orange.opacity(0.1) : Color.green.opacity(0.1))
+                        .cornerRadius(12)
                     }
+                    .disabled(llmEngine.isGenerating)
                 } else {
                     VStack(alignment: .trailing, spacing: 4) {
                         if modelDownloader.error != nil {
@@ -99,9 +138,26 @@ struct ChatView: View {
                                      Text("No model loaded.")
                                         .font(.caption)
                                         .foregroundColor(.gray)
+                                     
+                                     if !modelDownloader.availableModels.isEmpty {
+                                         Menu {
+                                             ForEach(modelDownloader.availableModels, id: \.self) { model in
+                                                 Button(model) {
+                                                     modelDownloader.activeModelName = model
+                                                 }
+                                             }
+                                         } label: {
+                                             Label("Select from Library (\(modelDownloader.availableModels.count))", systemImage: "books.vertical")
+                                                 .font(.caption)
+                                                 .foregroundColor(.blue)
+                                                 .padding(.top, 4)
+                                         }
+                                     }
+                                     
                                      Text("Download or import a .gguf model to start.")
                                         .font(.caption2)
                                         .foregroundColor(.gray.opacity(0.8))
+                                        .padding(.top, 2)
                                 } else {
                                     Text("How can I help you today?")
                                         .font(.title3)
@@ -208,17 +264,29 @@ struct ChatView: View {
             
             for await token in stream {
                 fullResponse += token
-                DispatchQueue.main.async {
-                    // Update local reference
-                    assistantMessage.content = fullResponse
-                    
-                    // Update model safely
-                    if var session = chatManager.currentSession, !session.messages.isEmpty {
-                        let lastIndex = session.messages.count - 1
-                        if lastIndex >= 0 {
-                            session.messages[lastIndex] = assistantMessage
-                            chatManager.currentSession = session
+                
+                // Batch updates every few characters to keep UI smooth at 40+ t/s
+                if fullResponse.count % 5 == 0 || fullResponse.hasSuffix(".") || fullResponse.hasSuffix("\n") {
+                    await MainActor.run {
+                        assistantMessage.content = fullResponse
+                        
+                        if var session = chatManager.currentSession {
+                            if !session.messages.isEmpty {
+                                session.messages[session.messages.count - 1] = assistantMessage
+                                chatManager.currentSession = session
+                            }
                         }
+                    }
+                }
+            }
+            
+            // Final update to ensure content is complete
+            await MainActor.run {
+                assistantMessage.content = fullResponse
+                if var session = chatManager.currentSession {
+                    if !session.messages.isEmpty {
+                        session.messages[session.messages.count - 1] = assistantMessage
+                        chatManager.currentSession = session
                     }
                 }
             }

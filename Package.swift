@@ -15,9 +15,7 @@ let package = Package(
     ],
     dependencies: [
         // State-of-the-Art 2026 LLM Wrapper (Explicit Identification)
-        .package(name: "LLM", url: "https://github.com/eastriverlee/LLM.swift", branch: "main"),
-        // SwiftSyntax for 2026 Macros
-        .package(url: "https://github.com/apple/swift-syntax.git", from: "602.0.0")
+        .package(name: "LLM", url: "https://github.com/eastriverlee/LLM.swift", branch: "main")
     ],
     targets: [
         .target(

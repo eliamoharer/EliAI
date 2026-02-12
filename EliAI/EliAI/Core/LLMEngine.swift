@@ -45,18 +45,16 @@ class LLMEngine {
         
         return AsyncStream { continuation in
             generationTask = Task.detached(priority: .userInitiated) { [weak self] in
-                guard let self = self, let llm = await MainActor.run(resultType: LLM?.self, body: { self.llm }) else {
+                // Thread-safe state capture (2026 Standard)
+                guard let self = self, 
+                      let (llm, path) = await MainActor.run(resultType: (LLM, String)?.self, body: {
+                          guard let engineLLM = self.llm else { return nil }
+                          return (engineLLM, self.modelPath?.lowercased() ?? "")
+                      }) else {
                     continuation.yield("Error: LLM Engine not ready.")
                     continuation.finish()
                     return
                 }
-                
-                // Apply 2026 Standard Sampling (Prevents looping & nonsense)
-                // For Qwen 3 (Flagship): top_p 0.8, repetition_penalty 1.1
-                // For LFM 2.5 (Liquid): temp 0.1, top_p 0.1, repetition_penalty 1.05
-                
-                // applySamplingParameters(llm) 
-                let path = await MainActor.run { self.modelPath?.lowercased() ?? "" }
                 
                 // Detection logic with Qwen 3 as the absolute default/fallback
                 if path.contains("lfm") {
@@ -67,12 +65,11 @@ class LLMEngine {
                         print("Applied LFM 2.5 Sampling Standards")
                     }
                 } else {
-                    // Qwen 3 Defaults (Golden Standards) - Used as fallback for all other models
                     await MainActor.run {
                         llm.temperature = 0.7
                         llm.topP = 0.8
                         llm.repeatPenalty = 1.1
-                        print("Applied Qwen 3 Sampling Standards (Default/Fallback)")
+                        print("Applied Qwen 3 Sampling Standards")
                     }
                 }
                 
@@ -101,5 +98,13 @@ class LLMEngine {
     func stopGeneration() {
         generationTask?.cancel()
         isGenerating = false
+    }
+    
+    func unloadModel() {
+        stopGeneration()
+        self.llm = nil
+        self.modelPath = nil
+        self.isLoaded = false
+        self.loadError = nil
     }
 }

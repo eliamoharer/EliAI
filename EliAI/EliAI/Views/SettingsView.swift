@@ -9,18 +9,18 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section(header: Text("Model Information")) {
-                Text("Model: HY-1.8B-2Bit-GGUF")
-                
                 if let downloader = modelDownloader {
+                    Text("Model: \(downloader.activeModelName)")
+                    
                     if downloader.localModelURL != nil {
                         HStack {
-                            Text("Status: Downloaded")
+                            Text("Status: Loaded & Ready")
                             Spacer()
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundColor(.green)
                         }
                     } else if downloader.isDownloading {
-                        VStack(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 5) {
                             Text("Status: Downloading...")
                                 .foregroundColor(.orange)
                             ProgressView(value: downloader.downloadProgress)
@@ -33,7 +33,7 @@ struct SettingsView: View {
                             Text("Status: Not Downloaded")
                                 .foregroundColor(.red)
                             Spacer()
-                            Button("Download") {
+                            Button("Download Qwen 3") {
                                 downloader.downloadModel()
                             }
                             .buttonStyle(.borderedProminent)
@@ -53,7 +53,7 @@ struct SettingsView: View {
             
             Section(header: Text("Storage")) {
                 Button("Clear Chat History") {
-                    // Implement clear history logic
+                    // This is handled via ChatManager
                 }
                 .foregroundColor(.red)
                 
@@ -69,10 +69,10 @@ struct SettingsView: View {
                 HStack {
                     Text("EliAI")
                     Spacer()
-                    Text("v1.0")
+                    Text("Feb 2026 Edition")
                         .foregroundColor(.gray)
                 }
-                Text("Powered by llama.cpp & HunYuan")
+                Text("Powered by LLM.swift & Qwen 3")
             }
         }
         .navigationTitle("Settings")

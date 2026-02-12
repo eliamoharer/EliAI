@@ -10,11 +10,19 @@ on:
 jobs:
   build:
     name: Build and Package IPA
-    runs-on: macos-latest
+    runs-on: macos-15
 
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
+
+    - name: Verify Swift Version
+      run: swift --version
+
+    - name: Set up Swift
+      uses: swift-actions/setup-swift@v2
+      with:
+        swift-version: "6.0"
 
     - name: Cache Swift Packages
       uses: actions/cache@v4
@@ -38,7 +46,7 @@ jobs:
       run: xcodegen generate
 
     - name: Resolve Dependencies
-      run: xcodebuild -resolvePackageDependencies -project EliAI.xcodeproj -scheme EliAI -skipPackagePluginValidation IDEPackageEnablePrebuilts=YES
+      run: xcodebuild -resolvePackageDependencies -project EliAI.xcodeproj -scheme EliAI -skipPackagePluginValidation
 
     - name: Build App
       # Build the generated project
