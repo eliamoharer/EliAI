@@ -24,14 +24,6 @@ jobs:
         mkdir -p Packages
         git clone https://github.com/eastriverlee/LLM.swift.git Packages/LLM
         
-    - name: Patch LLM.swift
-      # Surgical patch for LLM.swift Package.swift to fix missing transitive macro dependency.
-      # Targets LLMMacros shim which incorrectly imports SwiftSyntaxMacros without a dependency declaration.
-      run: |
-        cd Packages/LLM
-        sed -i '' 's/"LLMMacrosImplementation",/"LLMMacrosImplementation", .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),/' Package.swift
-        echo "--- Patched Package.swift Content ---"
-        cat Package.swift
 
     - name: Set up Swift
       uses: swift-actions/setup-swift@v2
