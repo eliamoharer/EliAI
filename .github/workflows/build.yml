@@ -51,6 +51,7 @@ jobs:
 
       - name: Build Release App (Device)
         run: |
+          set -eo pipefail
           xcodebuild build \
             -project EliAI.xcodeproj \
             -scheme EliAI \
@@ -62,7 +63,22 @@ jobs:
             -skipMacroValidation \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO | tee xcodebuild.log
+
+      - name: Show Build Errors On Failure
+        if: failure()
+        run: |
+          echo "----- xcodebuild errors -----"
+          grep -n " error: " xcodebuild.log || true
+          echo "----- tail xcodebuild.log -----"
+          tail -n 250 xcodebuild.log || true
+
+      - name: Upload Build Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
 
       - name: Package IPA
         run: |
