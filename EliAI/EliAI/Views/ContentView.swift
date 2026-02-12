@@ -52,85 +52,73 @@ struct ContentView: View {
             
             // Foreground: Chat Layer
             GeometryReader { geometry in
-                VStack {
+                VStack(spacing: 0) {
                     ChatView(
                         chatManager: chatManager,
                         llmEngine: llmEngine,
                         agentManager: agentManager,
                         modelDownloader: modelDownloader
                     )
+                    // Ensure full height
                     .frame(height: geometry.size.height)
                     .background(Color.white)
-                    // Removed bottom corner radius to stick to bottom
-                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-                    // We might want to mask the bottom corners if we want it "stuck"
-                    // Or just remove the clipShape entirely for a full sheet look?
-                    // User said "stuck to the bottom". 
-                    // Let's keep top corners rounded, bottom square.
-                    .mask(
-                        VStack(spacing: 0) {
-                            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                            Rectangle().frame(height: 30) // Extensions
-                        }
-                    ) 
+                    // Clip top corners only.
+                    .clipShape(RoundedRectangle(cornerRadius: isChatVisible ? 0 : 30, style: .continuous))
                     .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: -5)
                 }
-                .offset(y: isChatVisible ? 0 : geometry.size.height - 120) // 120px peek
+                // If chat is visible, offset is 0. If hidden/peaking, offset is height - peek.
+                // However, user said "chat still doesnt touch the bottom".
+                // If isChatVisible is true, offset is 0.
+                .offset(y: isChatVisible ? 0 : geometry.size.height - 120) 
                 .offset(y: dragOffset)
                 .gesture(
                     DragGesture()
                         .onChanged { value in
-                            if isChatVisible {
-                                if value.translation.height > 0 {
-                                    dragOffset = value.translation.height
-                                } else {
-                                    dragOffset = value.translation.height / 3
-                                }
-                            } else {
-                                if value.translation.height < 0 {
-                                    dragOffset = value.translation.height
-                                } else {
-                                    dragOffset = value.translation.height / 3
-                                }
-                            }
+                             // Simple drag logic
+                             let translation = value.translation.height
+                             if isChatVisible {
+                                 // Dragging down from full screen
+                                 if translation > 0 { dragOffset = translation }
+                             } else {
+                                 // Dragging up from peek
+                                 if translation < 0 { dragOffset = translation }
+                             }
                         }
                         .onEnded { value in
-                            let threshold = geometry.size.height * 0.15
+                            let threshold = geometry.size.height * 0.2
                             if isChatVisible {
                                 if value.translation.height > threshold {
-                                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                        isChatVisible = false
-                                        isExplorerOpaque = false
-                                    }
+                                    withAnimation(.spring()) { isChatVisible = false }
                                 } else {
-                                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                        isChatVisible = true
-                                    }
+                                    withAnimation(.spring()) { isChatVisible = true }
                                 }
                             } else {
                                 if value.translation.height < -threshold {
-                                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                        isChatVisible = true
-                                        isExplorerOpaque = false
-                                    }
+                                    withAnimation(.spring()) { isChatVisible = true }
                                 } else {
-                                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                        isChatVisible = false
-                                    }
+                                    withAnimation(.spring()) { isChatVisible = false }
                                 }
                             }
-                            withAnimation {
-                                dragOffset = 0
-                            }
+                            withAnimation { dragOffset = 0 }
                         }
                 )
             }
+            .padding(.bottom, 0) // Explicitly ensure no bottom padding
+            .ignoresSafeArea(.keyboard) // critical for chat input
             
             // Removed visual cue (Capsule) as requested
+        }
         }
         .onAppear {
             modelDownloader.checkLocalModel()
             if let url = modelDownloader.localModelURL {
+                Task {
+                    try? await llmEngine.loadModel(at: url)
+                }
+            }
+        }
+        .onChange(of: modelDownloader.localModelURL) { oldUrl, newUrl in
+            if let url = newUrl {
                 Task {
                     try? await llmEngine.loadModel(at: url)
                 }

@@ -155,7 +155,9 @@ struct ChatView: View {
                 // Removed extra padding to sit flush against safe area if needed
                 // But usually we want some padding from edges.
                 // The critical part is observing keyboard or safe area.
-                .padding() 
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 8) // Add some internal padding
                 .background(.bar)
             }
         }

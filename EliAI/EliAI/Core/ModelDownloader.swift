@@ -30,6 +30,7 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         isDownloading = true
         error = nil
         downloadProgress = 0.0
+        log = "Starting download..."
         
         let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
         let task = session.downloadTask(with: url)
@@ -130,6 +131,7 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
                 self.downloadProgress = 1.0
                 self.isDownloading = false
                 self.error = nil 
+                self.log = "Download complete! Model ready."
             }
         } catch {
             DispatchQueue.main.async {
