@@ -81,7 +81,7 @@ class LLMEngine {
     
     private func buildPrompt(system: String, user: String) -> String {
         let sys = system.isEmpty ? "You are a helpful assistant." : system
-        // Llama 3.2 Instruct Template
-        return "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n\(sys)<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n\(user)<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+        // Modern ChatML Template (Qwen 2.5 Standard)
+        return "<|im_start|>system\n\(sys)<|im_end|>\n<|im_start|>user\n\(user)<|im_end|>\n<|im_start|>assistant\n"
     }
 }

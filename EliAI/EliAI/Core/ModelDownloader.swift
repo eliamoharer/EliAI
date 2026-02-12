@@ -10,9 +10,9 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     
     private var downloadTask: URLSessionDownloadTask?
     
-    // Default Model: Llama 3.2 1B Instruct (Highly Stable & High Performance)
-    let modelURLString = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
-    let modelFileName = "Llama-3.2-1B-Instruct-Q4_K_M.gguf"
+    // State-of-the-Art 2026 Model: Qwen 2.5 1.5B Instruct (Superior Reasoning & Multilingual)
+    let modelURLString = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+    let modelFileName = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
     
     func checkLocalModel() {
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }

@@ -149,7 +149,8 @@ class LlamaContext: @unchecked Sendable {
         batch.logits[Int(batch.n_tokens) - 1] = 1
         
         if llama_decode(ctx, batch) != 0 { 
-            onToken("Error: Decoder failed to process prompt. Check GGUF compatibility.")
+            let logs = LlamaModel.lastLogMessages.suffix(5).joined(separator: "\n")
+            onToken("Error: Decoder failed to process prompt. Logs:\n\(logs)")
             return 
         }
         
