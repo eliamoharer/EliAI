@@ -32,7 +32,7 @@ class LLMEngine {
         
         return AsyncStream { continuation in
             Task {
-                let fullPrompt = buildPrompt(system: systemPrompt, user: prompt)
+                _ = buildPrompt(system: systemPrompt, user: prompt)
                 
                 // Actual inference logic:
                 // await context?.completion(fullPrompt) { token in

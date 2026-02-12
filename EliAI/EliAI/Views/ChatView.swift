@@ -72,15 +72,14 @@ struct ChatView: View {
                         // Introduction / Empty State
                         if (chatManager.currentSession?.messages.isEmpty ?? true) {
                             VStack(spacing: 16) {
-                                Image(systemName: "brain.head.profile")
-                                    .font(.system(size: 60))
+                                Text("EliAI")
+                                    .font(.largeTitle)
+                                    .fontWeight(.bold)
                                     .foregroundColor(.blue.opacity(0.5))
                                     .padding(.top, 40)
-                                Text("Hello! I'm EliAI.")
-                                    .font(.title2)
+                                Text("How can I help you today?")
+                                    .font(.title3)
                                     .fontWeight(.medium)
-                                Text("I'm running locally on your device.\nHow can I help you today?")
-                                    .multilineTextAlignment(.center)
                                     .foregroundColor(.gray)
                             }
                             .frame(maxWidth: .infinity)
@@ -140,10 +139,12 @@ struct ChatView: View {
                 .background(.bar)
             }
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [UTType.data], meansForeignResource: true) { result in
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [UTType.data], allowsMultipleSelection: false) { result in
             switch result {
-            case .success(let url):
-                modelDownloader.importLocalModel(from: url)
+            case .success(let urls):
+                if let url = urls.first {
+                    modelDownloader.importLocalModel(from: url)
+                }
             case .failure(let error):
                 print("Import failed: \(error.localizedDescription)")
             }
