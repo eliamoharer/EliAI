@@ -7,9 +7,7 @@ class LlamaModel {
     var model: OpaquePointer?
     
     init(path: String) throws {
-        // Initialize backend (safe to call multiple times)
         llama_backend_init()
-        
         let header = llama_model_default_params()
         print("LlamaWrapper: Attempting to load model from \(path)")
         self.model = llama_load_model_from_file(path, header)
@@ -19,11 +17,6 @@ class LlamaModel {
             throw NSError(domain: "LlamaError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to load model at \(path)"])
         }
         print("LlamaWrapper: Model loaded successfully.")
-    }
-        
-        if self.model == nil {
-            throw NSError(domain: "LlamaError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to load model at \(path)"])
-        }
     }
     
     deinit {
