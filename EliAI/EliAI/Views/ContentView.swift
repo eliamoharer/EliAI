@@ -108,7 +108,7 @@ struct ContentView: View {
             
             // Removed visual cue (Capsule) as requested
         }
-        }
+
         .onAppear {
             modelDownloader.checkLocalModel()
             if let url = modelDownloader.localModelURL {

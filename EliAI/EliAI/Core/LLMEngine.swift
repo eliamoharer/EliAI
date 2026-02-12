@@ -2,6 +2,7 @@ import Foundation
 import llama
 
 @Observable
+@MainActor
 class LLMEngine {
     var isLoaded = false
     var isGenerating = false
