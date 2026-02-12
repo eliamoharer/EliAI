@@ -1,5 +1,5 @@
 import Foundation
-import llama
+import LlamaSwift
 
 // Fundamental Fix: Modernized LlamaWrapper for Official llama.cpp (b4600+)
 // Now features UI-accessible diagnostic logs.

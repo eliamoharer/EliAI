@@ -1,5 +1,5 @@
 import Foundation
-import llama
+import LlamaSwift
 
 @Observable
 @MainActor

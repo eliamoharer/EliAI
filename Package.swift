@@ -14,14 +14,14 @@ let package = Package(
             targets: ["EliAI"]),
     ],
     dependencies: [
-        // Swift-compatible llama.cpp fork
-        .package(url: "https://github.com/StanfordBDHG/llama.cpp", branch: "master")
+        // Modern llama.cpp wrapper (v8.0.4+)
+        .package(url: "https://github.com/mattt/llama.swift", branch: "main")
     ],
     targets: [
         .target(
             name: "EliAI",
             dependencies: [
-                .product(name: "llama", package: "llama.cpp")
+                .product(name: "LlamaSwift", package: "llama.swift")
             ],
             swiftSettings: [.interoperabilityMode(.Cxx)])
     ]
