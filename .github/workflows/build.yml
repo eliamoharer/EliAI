@@ -39,12 +39,12 @@ jobs:
         mkdir -p Sources/LLMMacros
         
         # Generate clean bridge declaration for iOS
-        cat <<'EOF' > Sources/LLMMacros/Generatable.swift
-import Foundation
+        cat <<'EOF' | sed 's/^        //' > Sources/LLMMacros/Generatable.swift
+        import Foundation
 
-@attached(member, names: arbitrary)
-public macro Generatable() = #externalMacro(module: "LLMMacrosImplementation", type: "GeneratableMacro")
-EOF
+        @attached(member, names: arbitrary)
+        public macro Generatable() = #externalMacro(module: "LLMMacrosImplementation", type: "GeneratableMacro")
+        EOF
 
         echo "--- Writing LLM Manifest via Heredoc ---"
         printf "// swift-tools-version: 6.0\n" > Package.swift
