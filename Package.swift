@@ -15,7 +15,7 @@ let package = Package(
     ],
     dependencies: [
         // llama.cpp official repository
-        .package(url: "https://github.com/ggerganov/llama.cpp", branch: "master")
+        .package(url: "https://github.com/ggerganov/llama.cpp.git", branch: "master")
     ],
     targets: [
         .target(
