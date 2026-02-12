@@ -23,11 +23,11 @@ let package = Package(
             name: "llm",
             path: "llama.cpp/llama.xcframework"
         ),
-        Target.macro(
+        .macro(
             name: "LLMMacrosImplementation",
             dependencies: [
-                Target.Dependency.product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
-                Target.Dependency.product(name: "SwiftCompilerPlugin", package: "swift-syntax")
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                .product(name: "SwiftCompilerPlugin", package: "swift-syntax")
             ]
         )
     ]

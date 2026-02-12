@@ -31,8 +31,8 @@ jobs:
         git lfs pull
         
         echo "--- Writing LLM Manifest via Heredoc ---"
-        cat <<'EOF' | sed 's/^        //' > Package.swift
-        // swift-tools-version: 6.0
+        printf "// swift-tools-version: 6.0\n" > Package.swift
+        cat <<'EOF' | sed 's/^        //' >> Package.swift
         import PackageDescription
 
         let package = Package(
@@ -57,19 +57,20 @@ jobs:
                     name: "llm",
                     path: "llama.cpp/llama.xcframework"
                 ),
-                Target.macro(
+                .macro(
                     name: "LLMMacrosImplementation",
                     dependencies: [
-                        Target.Dependency.product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
-                        Target.Dependency.product(name: "SwiftCompilerPlugin", package: "swift-syntax")
+                        .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                        .product(name: "SwiftCompilerPlugin", package: "swift-syntax")
                     ]
                 )
             ]
         )
         EOF
         
-        echo "--- Verified LLM Package.swift ---"
-        ls -l Package.swift
+        echo "--- Byte-check Manifest Header ---"
+        head -n 1 Package.swift | od -c
+        echo "--- Full Manifest Verification ---"
         cat Package.swift
 
     - name: Verify Swift Toolchain
