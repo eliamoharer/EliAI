@@ -34,42 +34,47 @@ jobs:
         ls -R llama.cpp
         
         echo "--- Overwriting Package.swift ---"
-        cat <<EOF > Package.swift
-// swift-tools-version: 5.9
-import PackageDescription
+        # 1. Write the tools-version header with NO indentation using echo
+        echo "// swift-tools-version: 5.9" > Package.swift
         
-let package = Package(
-    name: "LLM",
-    platforms: [.macOS(.v13), .iOS(.v16)],
-    products: [
-        .library(name: "LLM", targets: ["LLM"]),
-    ],
-    dependencies: [
-        .package(url: "https://github.com/apple/swift-syntax.git", from: "600.0.1"),
-    ],
-    targets: [
-        .target(
+        # 2. Append the rest of the manifest using cat <<EOF
+        # The content here is indented for YAML readability, but the file will contain this indentation.
+        # Swift is fine with indentation for 'import' and top-level statements.
+        cat <<EOF >> Package.swift
+        import PackageDescription
+        
+        let package = Package(
             name: "LLM",
-            dependencies: [
-                "llm",
-                "LLMMacrosImplementation",
+            platforms: [.macOS(.v13), .iOS(.v16)],
+            products: [
+                .library(name: "LLM", targets: ["LLM"]),
             ],
-            path: "Sources/LLM"
-        ),
-        .binaryTarget(
-            name: "llm",
-            path: "llama.cpp/llama.xcframework"
-        ),
-        .macro(
-            name: "LLMMacrosImplementation",
             dependencies: [
-                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
-                .product(name: "SwiftCompilerPlugin", package: "swift-syntax")
+                .package(url: "https://github.com/apple/swift-syntax.git", from: "600.0.1"),
+            ],
+            targets: [
+                .target(
+                    name: "LLM",
+                    dependencies: [
+                        "llm",
+                        "LLMMacrosImplementation",
+                    ],
+                    path: "Sources/LLM"
+                ),
+                .binaryTarget(
+                    name: "llm",
+                    path: "llama.cpp/llama.xcframework"
+                ),
+                .macro(
+                    name: "LLMMacrosImplementation",
+                    dependencies: [
+                        .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                        .product(name: "SwiftCompilerPlugin", package: "swift-syntax")
+                    ]
+                )
             ]
         )
-    ]
-)
-EOF
+        EOF
         
         echo "--- New Package.swift Content ---"
         cat Package.swift
