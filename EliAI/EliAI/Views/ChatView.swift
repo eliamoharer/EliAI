@@ -4,42 +4,93 @@ struct ChatView: View {
     var chatManager: ChatManager
     var llmEngine: LLMEngine
     var agentManager: AgentManager
+    // Pass modelDownloader to observe progress
+    var modelDownloader: ModelDownloader
     
     @State private var inputText: String = ""
     @State private var isInputFocused: Bool = false
     
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
             // Header
             HStack {
-                Text(chatManager.currentSession?.title ?? "New Chat")
+                Text(chatManager.currentSession?.title ?? "EliAI")
                     .font(.headline)
+                    .fontWeight(.bold)
                 Spacer()
-                if llmEngine.isLoaded {
-                    Circle().fill(Color.green).frame(width: 8, height: 8)
+                
+                if modelDownloader.isDownloading {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        ProgressView(value: modelDownloader.downloadProgress)
+                            .progressViewStyle(LinearProgressViewStyle())
+                            .frame(width: 100)
+                        Text("\(Int(modelDownloader.downloadProgress * 100))%")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
+                } else if llmEngine.isLoaded {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.green).frame(width: 8, height: 8)
+                        Text("Ready")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
                 } else {
-                    Circle().fill(Color.orange).frame(width: 8, height: 8)
+                    Button(action: {
+                        modelDownloader.downloadModel()
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.down.circle")
+                            Text("Download Model")
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.blue.opacity(0.1))
+                        .cornerRadius(12)
+                    }
                 }
             }
             .padding()
+            .background(.thinMaterial)
             
             // Messages List
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 12) {
+                    LazyVStack(spacing: 16) {
+                        // Introduction / Empty State
+                        if (chatManager.currentSession?.messages.isEmpty ?? true) {
+                            VStack(spacing: 16) {
+                                Image(systemName: "brain.head.profile")
+                                    .font(.system(size: 60))
+                                    .foregroundColor(.blue.opacity(0.5))
+                                    .padding(.top, 40)
+                                Text("Hello! I'm EliAI.")
+                                    .font(.title2)
+                                    .fontWeight(.medium)
+                                Text("I'm running locally on your device.\nHow can I help you today?")
+                                    .multilineTextAlignment(.center)
+                                    .foregroundColor(.gray)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 40)
+                        }
+                        
                         ForEach(chatManager.currentSession?.messages ?? []) { message in
                             MessageBubble(message: message)
                                 .id(message.id)
                         }
+                        
                         if llmEngine.isGenerating {
                             HStack {
                                 ProgressView()
+                                    .padding(.trailing, 4)
                                 Text("Thinking...")
                                     .font(.caption)
                                     .foregroundColor(.gray)
                                 Spacer()
                             }
-                            .padding()
+                            .padding(.horizontal)
                         }
                     }
                     .padding()
@@ -47,21 +98,33 @@ struct ChatView: View {
                 .onChange(of: chatManager.currentSession?.messages.count) { _ in
                     scrollToBottom(proxy: proxy)
                 }
+                .onChange(of: llmEngine.isGenerating) { isGenerating in
+                    if isGenerating { scrollToBottom(proxy: proxy) }
+                }
             }
+            .background(Color(UIColor.systemGroupedBackground))
             
             // Input Area
-            HStack {
-                TextField("Type a message...", text: $inputText)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .disabled(!llmEngine.isLoaded || llmEngine.isGenerating)
-                
-                Button(action: sendMessage) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 30))
+            VStack(spacing: 0) {
+                Divider()
+                HStack(alignment: .bottom) {
+                    TextField("Message...", text: $inputText, axis: .vertical)
+                        .padding(10)
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .cornerRadius(20)
+                        .lineLimit(1...5)
+                        .disabled(!llmEngine.isLoaded || llmEngine.isGenerating)
+                    
+                    Button(action: sendMessage) {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(inputText.isEmpty ? .gray : .blue)
+                    }
+                    .disabled(inputText.isEmpty || !llmEngine.isLoaded || llmEngine.isGenerating)
                 }
-                .disabled(inputText.isEmpty || !llmEngine.isLoaded || llmEngine.isGenerating)
+                .padding()
+                .background(.bar)
             }
-            .padding()
         }
     }
     
@@ -84,13 +147,8 @@ struct ChatView: View {
             
             for await token in stream {
                 fullResponse += token
-                // Update implementation to stream updates to the UI
-                // In a real app, this update logic needs to be efficient
-                // For now, we update the whole message
                 DispatchQueue.main.async {
                     assistantMessage.content = fullResponse
-                    // Update the last message in the session
-                    // This is slightly inefficient but works for MVP
                     if var session = chatManager.currentSession {
                         session.messages[session.messages.count - 1] = assistantMessage
                         chatManager.currentSession = session 
@@ -100,8 +158,6 @@ struct ChatView: View {
             
             // 3. Tool Check (Agentic behavior)
             if let toolOutput = await agentManager.processToolCalls(in: fullResponse) {
-                // If tools were called, we might want to feed that back to the LLM
-                // For this MVP, we just append the tool output as a system/tool message
                 let toolMessage = ChatMessage(role: .tool, content: toolOutput)
                 chatManager.addMessage(toolMessage)
             }

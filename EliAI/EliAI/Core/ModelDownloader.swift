@@ -1,7 +1,7 @@
 import Foundation
 
 @Observable
-class ModelDownloader {
+class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     var downloadProgress: Double = 0.0
     var isDownloading = false
     var error: String?
@@ -28,49 +28,64 @@ class ModelDownloader {
         
         isDownloading = true
         error = nil
+        downloadProgress = 0.0
         
-        // Simple download task, in production use background session delegate for progress
-        let session = URLSession(configuration: .default, delegate: nil, delegateQueue: .main)
-        
-        let task = session.downloadTask(with: url) { [weak self] localURL, response, error in
-            DispatchQueue.main.async {
-                self?.isDownloading = false
-                
-                if let error = error {
-                    self?.error = error.localizedDescription
-                    return
-                }
-                
-                guard let localURL = localURL, let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-                    self?.error = "FileSystem error"
-                    return
-                }
-                
-                let destinationURL = documentsURL.appendingPathComponent(self?.modelFileName ?? "model.gguf")
-                
-                do {
-                    if FileManager.default.fileExists(atPath: destinationURL.path) {
-                        try FileManager.default.removeItem(at: destinationURL)
-                    }
-                    try FileManager.default.moveItem(at: localURL, to: destinationURL)
-                    self?.localModelURL = destinationURL
-                    self?.downloadProgress = 1.0
-                } catch {
-                    self?.error = "File move error: \(error.localizedDescription)"
-                }
-            }
-        }
-        
-        // This simple closure doesn't support progress updates well. 
-        // For a real app, we need a delegate.
-        // But for this skeleton, we'll assume it works or just set isDownloading.
-        
-        task.resume()
+        let session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        let task = session.downloadTask(with: url)
         self.downloadTask = task
+        task.resume()
     }
     
     func cancelDownload() {
         downloadTask?.cancel()
         isDownloading = false
+    }
+    
+    // MARK: - URLSessionDownloadDelegate
+    
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        DispatchQueue.main.async {
+            self.downloadProgress = progress
+        }
+    }
+    
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            DispatchQueue.main.async {
+                self.error = "FileSystem error"
+                self.isDownloading = false
+            }
+            return
+        }
+        
+        let destinationURL = documentsURL.appendingPathComponent(modelFileName)
+        
+        do {
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try FileManager.default.removeItem(at: destinationURL)
+            }
+            try FileManager.default.moveItem(at: location, to: destinationURL)
+            
+            DispatchQueue.main.async {
+                self.localModelURL = destinationURL
+                self.downloadProgress = 1.0
+                self.isDownloading = false
+            }
+        } catch {
+            DispatchQueue.main.async {
+                self.error = "File move error: \(error.localizedDescription)"
+                self.isDownloading = false
+            }
+        }
+    }
+    
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            DispatchQueue.main.async {
+                self.error = error.localizedDescription
+                self.isDownloading = false
+            }
+        }
     }
 }

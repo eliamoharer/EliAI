@@ -4,27 +4,48 @@ struct MessageBubble: View {
     let message: ChatMessage
     
     var body: some View {
-        HStack {
+        HStack(alignment: .bottom, spacing: 8) {
             if message.role == .user {
                 Spacer()
+            } else {
+                // Assistant Icon
+                Image(systemName: "brain.head.profile")
+                    .resizable()
+                    .frame(width: 24, height: 24)
+                    .foregroundColor(.blue)
+                    .padding(6)
+                    .background(Circle().fill(Color.blue.opacity(0.1)))
             }
             
-            VStack(alignment: message.role == .user ? .trailing : .leading) {
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
                 if message.role == .tool {
-                    Text("🛠️ Tool Output:")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                    HStack {
+                        Image(systemName: "hammer.fill")
+                            .font(.caption2)
+                        Text("Tool Output")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                    }
+                    .foregroundColor(.orange)
                 }
                 
                 Text(message.content)
-                    .padding(10)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                     .background(backgroundColor)
                     .foregroundColor(foregroundColor)
-                    .cornerRadius(12)
+                    .cornerRadius(18)
+                    .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
             }
             
             if message.role != .user {
                 Spacer()
+            } else {
+                // User Icon (optional, or just avatar)
+                Image(systemName: "person.circle.fill")
+                    .resizable()
+                    .frame(width: 24, height: 24)
+                    .foregroundColor(.gray)
             }
         }
     }
@@ -33,8 +54,8 @@ struct MessageBubble: View {
         switch message.role {
         case .user: return Color.blue
         case .assistant: return Color(UIColor.secondarySystemBackground)
-        case .system: return Color.gray.opacity(0.2)
-        case .tool: return Color.orange.opacity(0.2)
+        case .system: return Color.yellow.opacity(0.2)
+        case .tool: return Color.orange.opacity(0.1)
         }
     }
     

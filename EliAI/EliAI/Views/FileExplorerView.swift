@@ -3,6 +3,7 @@ import SwiftUI
 struct FileExplorerView: View {
     var fileSystem: FileSystemManager
     var chatManager: ChatManager
+    var modelDownloader: ModelDownloader // Added
     var isOpaque: Bool
     var onSelectFile: (FileItem) -> Void
     
@@ -39,7 +40,7 @@ struct FileExplorerView: View {
             }
             .sheet(isPresented: $showingSettings) {
                 NavigationView {
-                    SettingsView()
+                    SettingsView(modelDownloader: modelDownloader) // Passed
                         .navigationBarItems(trailing: Button("Done") { showingSettings = false })
                 }
             }
