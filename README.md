@@ -44,11 +44,10 @@ Sideload the `EliAI.ipa` file to your iPhone using **AltStore** or **SideStore**
 
 ## CI Pipeline (GitHub Actions)
 The workflow now runs:
-1. Package dependency resolution
-2. `build-for-testing` simulator build
-3. Launch smoke UI test
-4. Model preflight smoke unit test
-5. Release iOS build and IPA packaging
+1. Selects an installed Xcode that includes `iphoneos` SDK
+2. Resolves package dependencies
+3. Builds release app for generic iOS device
+4. Packages unsigned IPA artifact
 
 `LLM.swift` is pinned to a fixed git revision in `project.yml` for deterministic builds.
 
