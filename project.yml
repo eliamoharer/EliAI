@@ -29,5 +29,5 @@ targets:
       - sdk: Accelerate.framework
 packages:
   llama.cpp:
-    url: https://github.com/StanfordBDHG/llama.cpp
+    url: https://github.com/ggerganov/llama.cpp
     branch: master

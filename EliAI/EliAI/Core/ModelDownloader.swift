@@ -10,9 +10,9 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     
     private var downloadTask: URLSessionDownloadTask?
     
-    // Updated URL: Llama 3.2 1B (Maximum Compatibility)
-    let modelURLString = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
-    let modelFileName = "Llama-3.2-1B-Instruct-Q4_K_M.gguf"
+    // Updated URL: LiquidAI LFM 2.5 1.2B (Requested Model)
+    let modelURLString = "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/LFM2.5-1.2B-Instruct-Q4_K_M.gguf?download=true"
+    let modelFileName = "LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
     
     func checkLocalModel() {
         guard let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }

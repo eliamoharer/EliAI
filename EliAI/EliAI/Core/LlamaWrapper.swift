@@ -10,11 +10,21 @@ class LlamaModel {
     private static let initializeBackend: Void = {
         print("LlamaWrapper: Initializing generic backend...")
         llama_backend_init()
+        
+        // Register a log callback to capture C++ errors
+        llama_log_set({ level, text, user_data in
+            if let text = text {
+                let message = String(cString: text)
+                print("LlamaLog [\(level)]: \(message.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
+        }, nil)
     }()
     
     init(path: String) throws {
         // Trigger static initialization
         _ = LlamaModel.initializeBackend
+        llama_backend_init()
+        llama_numa_init(LLAMA_NUMA_STRATEGY_DISTRIBUTE)
         
         print("LlamaWrapper: Checking file at \(path)")
         if !FileManager.default.fileExists(atPath: path) {
@@ -22,68 +32,53 @@ class LlamaModel {
         }
         
         // Log file size
-        do {
-            let attr = try FileManager.default.attributesOfItem(atPath: path)
-            let fileSize = attr[FileAttributeKey.size] as? UInt64 ?? 0
-            let mb = Double(fileSize) / (1024 * 1024)
-            print("LlamaWrapper: File size is \(String(format: "%.2f", mb)) MB")
-            
-            if fileSize < 10_000_000 {
-                throw NSError(domain: "LlamaError", code: 400, userInfo: [NSLocalizedDescriptionKey: "The model file is too small (\(String(format: "%.2f", mb)) MB). It likely didn't download completely or is an error page."])
-            }
-        } catch {
-             print("LlamaWrapper: Warning - Could not check file size.")
-        }
+        let attr = try FileManager.default.attributesOfItem(atPath: path)
+        let fileSize = attr[FileAttributeKey.size] as? UInt64 ?? 0
+        print("LlamaWrapper: File size is \(fileSize / 1024 / 1024) MB")
         
         // 1. Diagnostic magic byte check
         if let fileHandle = FileHandle(forReadingAtPath: path) {
             if let data = try? fileHandle.read(upToCount: 4) {
-                let magicBytes = data.map { String(format: "%02x", $0) }.joined(separator: " ")
-                print("LlamaWrapper: File magic bytes: \(magicBytes)")
-                
-                // GGUF magic is 'GGUF' (47 47 55 46)
                 if data != Data([0x47, 0x47, 0x55, 0x46]) {
-                    print("LlamaWrapper: ERROR - Invalid GGUF header!")
-                    // Try to see if it's HTML
-                    if let stringHead = String(data: data, encoding: .utf8) {
-                        print("LlamaWrapper: Header starts with: \(stringHead)")
-                    }
-                    throw NSError(domain: "LlamaError", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid model file. Expected GGUF format but found magic bytes: \(magicBytes). The file might be corrupted or an error page."])
+                    throw NSError(domain: "LlamaError", code: 400, userInfo: [NSLocalizedDescriptionKey: "Invalid model file header (Not GGUF)."])
                 }
             }
             try? fileHandle.close()
         }
         
-        // 2. Load model with Metal acceleration first
-        var header = llama_model_default_params()
-        header.n_gpu_layers = 12 
+        var m_params = llama_model_default_params()
+        m_params.n_gpu_layers = 16 // Increase for 1.2B model on A16
+        m_params.use_mmap = false  // Forced RAM load for reliability
+        m_params.use_mlock = true  // Keep in RAM
         
-        print("LlamaWrapper: Attempting load with Metal (12 layers)...")
+        print("LlamaWrapper: System Info - \(String(cString: llama_print_system_info()))")
+        print("LlamaWrapper: Loading model architecture...")
+        
         self.model = path.withCString { cPath in
-            return llama_load_model_from_file(cPath, header)
+            return llama_model_load_from_file(cPath, m_params)
         }
         
-        // 3. Fallback to CPU if Metal fails
         if self.model == nil {
-            print("LlamaWrapper: Metal load failed. Retrying with CPU only...")
-            header.n_gpu_layers = 0
+            print("LlamaWrapper: Initial load failed. Retrying CPU-only...")
+            m_params.n_gpu_layers = 0
             self.model = path.withCString { cPath in
-                return llama_load_model_from_file(cPath, header)
+                return llama_model_load_from_file(cPath, m_params)
             }
         }
         
         if self.model == nil {
-            print("LlamaWrapper: Load failed on both Metal and CPU.")
-            throw NSError(domain: "LlamaError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to load model even on CPU. This usually means the architecture is unsupported by this version of llama.cpp or the file is corrupted."])
+            throw NSError(domain: "LlamaError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to load model architecture. Ensure library version >= b4500 for LFM support."])
         }
         
-        let gpuUsed = header.n_gpu_layers > 0
-        print("LlamaWrapper: Model loaded successfully (\(gpuUsed ? "Metal" : "CPU")).")
+        // Log Architecture Name
+        var arch = [CChar](repeating: 0, count: 128)
+        llama_model_meta_val_str(self.model, "general.architecture", &arch, arch.count)
+        print("LlamaWrapper: SUCCESS! Loaded architecture: \(String(cString: arch))")
     }
     
     deinit {
         if let model = model {
-            llama_free_model(model)
+            llama_model_free(model)
         }
     }
 }
@@ -96,21 +91,20 @@ class LlamaContext {
     init(model: LlamaModel) throws {
         self.model = model
         
-        print("LlamaWrapper: Creating context...")
-        var params = llama_context_default_params()
-        params.n_ctx = 2048
+        var c_params = llama_context_default_params()
+        c_params.n_ctx = 2048
+        c_params.n_batch = 2048
+        c_params.n_threads = 4 // Optimize for A16 Efficiency Cores
+        c_params.n_threads_batch = 4
         
-        // Pass the opaque pointer
-        self.context = llama_new_context_with_model(model.model, params)
+        self.context = llama_init_from_model(model.model, c_params)
         
         if self.context == nil {
             throw NSError(domain: "LlamaError", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create context"])
         }
         
-        print("LlamaWrapper: Context created. Init batch...")
-        print("LlamaWrapper: Context created. Init batch...")
-        // Initialize batch with same size as context for safety
-        self.batch = llama_batch_init(2048, 0, 1) 
+        // Latest llama_batch_init(n_tokens, n_embd, n_seq_max)
+        self.batch = llama_batch_init(2048, 0, 1)
     }
     
     deinit {
@@ -123,21 +117,12 @@ class LlamaContext {
     func completion(_ prompt: String, onToken: (String) -> Void) async {
         guard let ctx = context, let mdl = model.model else { return }
         
-        // 1. Tokenize prompt
         var tokens = tokenize(text: prompt, addBos: true)
-        if tokens.isEmpty {
-             print("LlamaWrapper: Tokenization yielded empty result.")
-             return
-        }
+        if tokens.isEmpty { return }
         
-        // Cap tokens to batch size - 1 to leave room for one generated token
-        if tokens.count > 2047 {
-            tokens = Array(tokens.suffix(2047))
-        }
+        if tokens.count > 2047 { tokens = Array(tokens.suffix(2047)) }
         
-        // 2. Evaluate prompt
         batch.n_tokens = Int32(tokens.count)
-        
         for i in 0..<tokens.count {
             batch.token[i] = tokens[i]
             batch.pos[i] = Int32(i)
@@ -145,19 +130,12 @@ class LlamaContext {
             batch.seq_id[i]![0] = 0
             batch.logits[i] = 0
         }
-        // Enable logits for the last token to sample next
         batch.logits[tokens.count - 1] = 1 
         
-        if llama_decode(ctx, batch) != 0 {
-            print("LlamaWrapper: llama_decode failed")
-            onToken("Error: Inference failed (llama_decode error).")
-            return
-        }
+        if llama_decode(ctx, batch) != 0 { return }
         
         var n_cur = batch.n_tokens
         
-        // 3. Generation loop
-        // Increased limit for more natural answers
         for _ in 0..<500 {
             let n_vocab = llama_n_vocab(mdl)
             let logits = llama_get_logits_ith(ctx, batch.n_tokens - 1)
@@ -175,21 +153,13 @@ class LlamaContext {
                 }
             }
             
-            if best_token_id == llama_token_eos(mdl) {
-                print("LlamaWrapper: Reached EOS.")
-                break
-            }
+            if best_token_id == llama_token_eos(mdl) { break }
             
             let piece = token_to_piece(token: best_token_id)
             onToken(piece)
             
-            // Check context limits
-            if n_cur >= 2048 {
-                print("LlamaWrapper: Context full.")
-                break
-            }
+            if n_cur >= 2048 { break }
             
-            // Prepare next batch (single token)
             batch.n_tokens = 1
             batch.token[0] = best_token_id
             batch.pos[0] = n_cur
@@ -198,55 +168,35 @@ class LlamaContext {
             batch.logits[0] = 1 
             
             n_cur += 1
-            
-            if llama_decode(ctx, batch) != 0 {
-                print("LlamaWrapper: llama_decode failed in loop.")
-                break
-            }
-            
+            if llama_decode(ctx, batch) != 0 { break }
             await Task.yield() 
         }
     }
     
     private func tokenize(text: String, addBos: Bool) -> [llama_token] {
         guard let mdl = model.model else { return [] }
-        
-        // Initial estimate: 1 token per byte + BOS
-        let n_tokens = text.utf8.count + (addBos ? 1 : 0)
-        var tokens = [llama_token](repeating: 0, count: n_tokens)
-        
-        let n = llama_tokenize(mdl, text, Int32(text.utf8.count), &tokens, Int32(tokens.count), addBos, false)
-        
+        var tokens = [llama_token](repeating: 0, count: text.utf8.count + 8)
+        let n = llama_tokenize(mdl, text, Int32(text.utf8.count), &tokens, Int32(tokens.count), addBos, true)
         if n < 0 {
-             // Buffer too small, use the value of -n to resize
-             let size = Int(-n)
-             tokens = [llama_token](repeating: 0, count: size)
-             let n2 = llama_tokenize(mdl, text, Int32(text.utf8.count), &tokens, Int32(tokens.count), addBos, false)
-             if n2 < 0 { return [] }
+             tokens = [llama_token](repeating: 0, count: Int(-n))
+             let n2 = llama_tokenize(mdl, text, Int32(text.utf8.count), &tokens, Int32(tokens.count), addBos, true)
              return Array(tokens.prefix(Int(n2)))
         }
-        
         return Array(tokens.prefix(Int(n)))
     }
     
     private func token_to_piece(token: llama_token) -> String {
         guard let mdl = model.model else { return "" }
-        
-        var buf = [CChar](repeating: 0, count: 64) 
-        var n = llama_token_to_piece(mdl, token, &buf, Int32(buf.count), false)
-        
+        var buf = [CChar](repeating: 0, count: 128)
+        // llama_token_to_piece(model, token, buf, length, lstrip, special)
+        let n = llama_token_to_piece(mdl, token, &buf, Int32(buf.count), 0, false)
         if n < 0 {
-            let size = Int(-n)
-            buf = [CChar](repeating: 0, count: size)
-            n = llama_token_to_piece(mdl, token, &buf, Int32(buf.count), false)
-        }
-        
-        if n > 0 {
-            // Use accurate byte length for string conversion
-            let data = Data(bytes: buf, count: Int(n))
+            buf = [CChar](repeating: 0, count: Int(-n))
+            let n2 = llama_token_to_piece(mdl, token, &buf, Int32(buf.count), 0, false)
+            let data = Data(bytes: buf, count: Int(n2))
             return String(data: data, encoding: .utf8) ?? ""
         }
-        
-        return ""
+        let data = Data(bytes: buf, count: Int(n))
+        return String(data: data, encoding: .utf8) ?? ""
     }
 }

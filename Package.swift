@@ -14,8 +14,8 @@ let package = Package(
             targets: ["EliAI"]),
     ],
     dependencies: [
-        // llama.cpp fork with SwiftPM support
-        .package(url: "https://github.com/StanfordBDHG/llama.cpp", branch: "master")
+        // llama.cpp official repository
+        .package(url: "https://github.com/ggerganov/llama.cpp", branch: "master")
     ],
     targets: [
         .target(
