@@ -35,7 +35,7 @@ class LLMEngine {
         try ModelValidator.validateModel(at: url)
     }
 
-    func loadModel(at url: URL) async throws {
+    func loadModel(at url: URL) throws {
         stopGeneration()
         loadError = nil
         generationError = nil
@@ -80,13 +80,7 @@ class LLMEngine {
         isGenerating = true
         generationError = nil
 
-        return AsyncStream<String>(bufferingPolicy: .unbounded) { continuation in
-            continuation.onTermination = { [weak self] (_: AsyncStream<String>.Continuation.Termination) in
-                Task { @MainActor in
-                    self?.stopGeneration()
-                }
-            }
-
+        return AsyncStream<String> { (continuation: AsyncStream<String>.Continuation) in
             generationTask = Task(priority: .userInitiated) { [weak self] in
                 guard let self else {
                     continuation.yield("Error: LLM engine is unavailable.")
@@ -106,18 +100,16 @@ class LLMEngine {
                 let prompt = profile.formatPrompt(messages: clippedMessages, systemPrompt: systemPrompt)
                 self.applySamplingPreset(profile.sampling, to: llm)
 
-                do {
-                    AppLogger.debug("Starting generation with profile \(profile.displayName).", category: .inference)
+                AppLogger.debug("Starting generation with profile \(profile.displayName).", category: .inference)
 
-                    for try await token in llm.generate(prompt) {
-                        if Task.isCancelled { break }
-                        if token.contains("<|im_end|>") { break }
-                        continuation.yield(token)
-                    }
-                } catch {
-                    continuation.yield("Error during generation: \(error.localizedDescription)")
-                    self.generationError = error.localizedDescription
-                    AppLogger.error("Generation failed: \(error.localizedDescription)", category: .inference)
+                let rawOutput = await llm.getCompletion(from: prompt)
+                var output = String(describing: rawOutput)
+                if output.hasPrefix("Optional(\""), output.hasSuffix("\")"), output.count >= 12 {
+                    output = String(output.dropFirst(10).dropLast(2))
+                }
+                if !Task.isCancelled {
+                    let cleaned = output.replacingOccurrences(of: "<|im_end|>", with: "")
+                    continuation.yield(cleaned)
                 }
 
                 self.isGenerating = false

@@ -20,17 +20,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Prefer newest installed Xcode that has iphoneos SDK available.
-          for xcode in $(ls -d /Applications/Xcode*.app 2>/dev/null | sort -Vr); do
-            echo "Trying $xcode"
-            sudo xcode-select -s "$xcode/Contents/Developer"
-            if xcrun --sdk iphoneos --show-sdk-version >/dev/null 2>&1; then
-              echo "Selected $xcode"
-              xcodebuild -version
-              xcrun --sdk iphoneos --show-sdk-version
-              exit 0
-            fi
-          done
+          select_xcode() {
+            for xcode in "$@"; do
+              echo "Trying $xcode"
+              sudo xcode-select -s "$xcode/Contents/Developer"
+              if xcrun --sdk iphoneos --show-sdk-version >/dev/null 2>&1; then
+                echo "Selected $xcode"
+                xcodebuild -version
+                xcrun --sdk iphoneos --show-sdk-version
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          mapfile -t ALL_XCODES < <(ls -d /Applications/Xcode*.app 2>/dev/null | sort -Vr)
+          mapfile -t STABLE_XCODES < <(printf "%s\n" "${ALL_XCODES[@]}" | grep -vi "Release_Candidate" || true)
+          mapfile -t RC_XCODES < <(printf "%s\n" "${ALL_XCODES[@]}" | grep -i "Release_Candidate" || true)
+
+          # Prefer stable Xcode installs first, fallback to RC builds.
+          if [ "${#STABLE_XCODES[@]}" -gt 0 ] && select_xcode "${STABLE_XCODES[@]}"; then
+            exit 0
+          fi
+          if [ "${#RC_XCODES[@]}" -gt 0 ] && select_xcode "${RC_XCODES[@]}"; then
+            exit 0
+          fi
 
           echo "No installed Xcode with iphoneos SDK found."
           exit 1

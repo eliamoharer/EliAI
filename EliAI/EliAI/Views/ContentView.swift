@@ -105,12 +105,12 @@ struct ContentView: View {
 
             modelDownloader.checkLocalModel()
             if let url = modelDownloader.localModelURL {
-                Task { await attemptModelLoad(url: url) }
+                attemptModelLoad(url: url)
             }
         }
         .onChange(of: modelDownloader.localModelURL) { _, newURL in
             guard let url = newURL else { return }
-            Task { await attemptModelLoad(url: url) }
+            attemptModelLoad(url: url)
         }
         .alert(
             "Model Loading Error",
@@ -127,9 +127,9 @@ struct ContentView: View {
         }
     }
 
-    private func attemptModelLoad(url: URL) async {
+    private func attemptModelLoad(url: URL) {
         do {
-            try await llmEngine.loadModel(at: url)
+            try llmEngine.loadModel(at: url)
             didAttemptFallbackModel = false
         } catch {
             if !didAttemptFallbackModel,
