@@ -108,7 +108,6 @@ class LLMEngine {
 
                 do {
                     AppLogger.debug("Starting generation with profile \(profile.displayName).", category: .inference)
-                    llm.clearContext()
 
                     for try await token in llm.generate(prompt) {
                         if Task.isCancelled { break }
