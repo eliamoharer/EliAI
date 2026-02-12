@@ -27,6 +27,9 @@ jobs:
     - name: Generate Xcode Project
       run: xcodegen generate
 
+    - name: Resolve Dependencies
+      run: xcodebuild -resolvePackageDependencies -project EliAI.xcodeproj -scheme EliAI
+
     - name: Build App
       # Build the generated project
       run: |
