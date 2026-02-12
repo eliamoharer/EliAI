@@ -10,17 +10,21 @@ class AgentManager {
     
     func processToolCalls(in text: String) async -> String? {
         // Simple regex parser for <tool_call>...</tool_call>
-        // In a real implementation, you'd use a more robust parser or structured output mode from llama.cpp
+        let pattern = "<tool_call>(.*?)</tool_call>"
         
-        // Example format: <tool_call>{"name": "create_file", "arguments": {"path": "notes/idea.md", "content": "hello"}}</tool_call>
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .dotMatchesLineSeparators) else { return nil }
+        let nsString = text as NSString
+        let results = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
         
-        guard let regex = try? Regex(/<tool_call>(.*?)<\/tool_call>/) else { return nil }
-        
-        if let match = text.firstMatch(of: regex) {
-            let jsonString = String(match.output.1)
-            if let data = jsonString.data(using: .utf8),
-               let toolCall = try? JSONDecoder().decode(ToolCall.self, from: data) {
-                return await execute(toolCall)
+        for result in results {
+            if result.numberOfRanges > 1 {
+                let range = result.range(at: 1)
+                let jsonString = nsString.substring(with: range)
+                
+                if let data = jsonString.data(using: .utf8),
+                   let toolCall = try? JSONDecoder().decode(ToolCall.self, from: data) {
+                    return await execute(toolCall)
+                }
             }
         }
         
@@ -54,7 +58,7 @@ class AgentManager {
     }
 }
 
-struct ToolCall: Codable {
+struct ToolCall: Codable, Equatable {
     let name: String
     let arguments: [String: String]
 }

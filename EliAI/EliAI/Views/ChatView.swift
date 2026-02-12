@@ -1,9 +1,9 @@
 import SwiftUI
 
 struct ChatView: View {
-    @ObservedObject var chatManager: ChatManager
-    @ObservedObject var llmEngine: LLMEngine
-    @ObservedObject var agentManager: AgentManager
+    var chatManager: ChatManager
+    var llmEngine: LLMEngine
+    var agentManager: AgentManager
     
     @State private var inputText: String = ""
     @State private var isInputFocused: Bool = false
