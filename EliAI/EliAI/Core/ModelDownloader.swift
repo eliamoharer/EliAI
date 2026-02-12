@@ -6,7 +6,8 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     var isDownloading = false
     var error: String?
     var localModelURL: URL?
-    var log: String = "Ready to load model." // New log property
+    var log: String = "Ready to load model." 
+
     
     private var downloadTask: URLSessionDownloadTask?
     
@@ -99,21 +100,16 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
         let fileName = sourceURL.lastPathComponent
         let destinationURL = documentsURL.appendingPathComponent(fileName)
         
-        self.log = "Starting import from: \(fileName)..."
+        self.updateLog("Starting import from: \(fileName)...")
         self.activeModelName = fileName
         self.isDownloading = true // Use this to show activity
         self.downloadProgress = 0.0
         
         Task {
             do {
-                if FileManager.default.fileExists(atPath: destinationURL.path) {
-                    self.log = "Removing existing model file..."
-                    try FileManager.default.removeItem(at: destinationURL)
-                }
-                
                 let gotAccess = sourceURL.startAccessingSecurityScopedResource()
                 if !gotAccess {
-                    self.log = "Warning: Could not access security scoped resource. Attempting copy anyway..."
+                    self.updateLog("Warning: Could not access security scoped resource. Attempting copy anyway...")
                 }
                 
                 defer {
@@ -122,22 +118,29 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
                     }
                 }
                 
-                self.log = "Copying file (this may take a moment)..."
-                // Copying large files can block, so we run this on a background thread if possible, 
-                // but FileManager isn't async. We rely on Task priority.
-                try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+                self.updateLog("Copying file (this may take a moment)...")
+                
+                // Copy to a temporary location first to ensure atomicity/safety
+                let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("gguf")
+                try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+                
+                // Now move to destination, overwriting if necessary
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try FileManager.default.removeItem(at: destinationURL)
+                }
+                try FileManager.default.moveItem(at: tempURL, to: destinationURL)
                 
                 await MainActor.run {
                     self.localModelURL = destinationURL
                     self.downloadProgress = 1.0
                     self.isDownloading = false
                     self.error = nil
-                    self.log = "Import successful! Model ready: \(self.activeModelName)"
+                    self.updateLog("Import successful! Model ready: \(self.activeModelName)")
                 }
             } catch {
                 await MainActor.run {
                     self.error = "Import error: \(error.localizedDescription)"
-                    self.log = "Import failed: \(error.localizedDescription)"
+                    self.updateLog("Import failed: \(error.localizedDescription)")
                     self.isDownloading = false
                 }
             }

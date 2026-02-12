@@ -39,7 +39,7 @@ class LLMEngine {
         }
     }
     
-    func generate(prompt: String, systemPrompt: String = "") -> AsyncStream<String> {
+    func generate(messages: [ChatMessage], systemPrompt: String = "") -> AsyncStream<String> {
         generationTask?.cancel() 
         isGenerating = true
         
@@ -77,8 +77,23 @@ class LLMEngine {
                 do {
                     await llm.resetContext()
                     
-                    // Qwen 3 / ChatML Formatting
-                    let formattedPrompt = "<|im_start|>system\n\(systemPrompt.isEmpty ? "You are EliAI, a helpful assistant." : systemPrompt)<|im_end|>\n<|im_start|>user\n\(prompt)<|im_end|>\n<|im_start|>assistant\n"
+                    // ChatML Formatting with History
+                    var formattedPrompt = ""
+                    
+                    // System Prompt
+                    formattedPrompt += "<|im_start|>system\n"
+                    formattedPrompt += systemPrompt.isEmpty ? "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories." : systemPrompt
+                    formattedPrompt += "<|im_end|>\n"
+                    
+                    // History
+                    for message in messages {
+                        formattedPrompt += "<|im_start|>\(message.role.rawValue)\n"
+                        formattedPrompt += message.content
+                        formattedPrompt += "<|im_end|>\n"
+                    }
+                    
+                    // Assistant Generation Start
+                    formattedPrompt += "<|im_start|>assistant\n"
                     
                     for try await token in llm.generate(formattedPrompt) {
                         if Task.isCancelled { break }

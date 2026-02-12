@@ -251,54 +251,69 @@ struct ChatView: View {
         // 1. User Message
         let userMessage = ChatMessage(role: .user, content: inputText)
         chatManager.addMessage(userMessage)
-        let prompt = inputText
+        let prompt = inputText // Keep for reference if needed, but we use history now
         inputText = ""
         
-        // 2. Assistant Generation
+        // Start Agent Loop
         Task {
+            await runAgentLoop()
+        }
+    }
+    
+    private func runAgentLoop() async {
+        var keepGenerating = true
+        
+        while keepGenerating {
+            keepGenerating = false // Default to stop unless tool triggers continuation
+            
+            // 2. Assistant Generation
             var fullResponse = ""
             var assistantMessage = ChatMessage(role: .assistant, content: "")
             chatManager.addMessage(assistantMessage) // Add placeholder
             
-            let stream = llmEngine.generate(prompt: prompt)
+            // Generate using FULL history
+            let history = chatManager.currentSession?.messages.dropLast() // Exclude the placeholder we just added
+            let stream = llmEngine.generate(messages: Array(history ?? []))
             
             for await token in stream {
                 fullResponse += token
                 
-                // Batch updates every few characters to keep UI smooth at 40+ t/s
+                // Batch updates
                 if fullResponse.count % 5 == 0 || fullResponse.hasSuffix(".") || fullResponse.hasSuffix("\n") {
                     await MainActor.run {
                         assistantMessage.content = fullResponse
-                        
-                        if var session = chatManager.currentSession {
-                            if !session.messages.isEmpty {
-                                session.messages[session.messages.count - 1] = assistantMessage
-                                chatManager.currentSession = session
-                            }
-                        }
+                        updateLastMessage(with: assistantMessage)
                     }
                 }
             }
             
-            // Final update to ensure content is complete
+            // Final update
             await MainActor.run {
                 assistantMessage.content = fullResponse
-                if var session = chatManager.currentSession {
-                    if !session.messages.isEmpty {
-                        session.messages[session.messages.count - 1] = assistantMessage
-                        chatManager.currentSession = session
-                    }
-                }
+                updateLastMessage(with: assistantMessage)
             }
             
             // 3. Tool Check (Agentic behavior)
             if let toolOutput = await agentManager.processToolCalls(in: fullResponse) {
+                // Add tool output to history
                 let toolMessage = ChatMessage(role: .tool, content: toolOutput)
                 chatManager.addMessage(toolMessage)
+                
+                // Loop continues to let the model interpret the tool output
+                keepGenerating = true
             }
             
             if let session = chatManager.currentSession {
                 chatManager.saveSession(session)
+            }
+        }
+    }
+    
+    private func updateLastMessage(with message: ChatMessage) {
+        if var session = chatManager.currentSession {
+            if !session.messages.isEmpty {
+                session.messages[session.messages.count - 1] = message
+                chatManager.currentSession = session
             }
         }
     }
