@@ -8,8 +8,8 @@ class LLMEngine {
     var isGenerating = false
     var modelPath: String?
     
-    // In a real implementation with the library linked:
-    // private var context: LlamaContext? 
+    // Correctly declare the context
+    private var context: LlamaContext? 
     
     init() {}
     
@@ -19,9 +19,9 @@ class LLMEngine {
         let path = url.path
         print("Loading model from: \(path)")
         
-        // Actual loading logic would be:
-        // let model = try? LlamaModel(path: path)
-        // self.context = try? LlamaContext(model: model!)
+        // Actual loading logic with proper error handling
+        let model = try LlamaModel(path: path)
+        self.context = try LlamaContext(model: model)
         
         self.modelPath = path
         self.isLoaded = true
@@ -33,20 +33,15 @@ class LLMEngine {
         
         return AsyncStream { continuation in
             Task {
-                _ = buildPrompt(system: systemPrompt, user: prompt)
+                let fullPrompt = buildPrompt(system: systemPrompt, user: prompt)
                 
-                // Actual inference logic:
-                // await context?.completion(fullPrompt) { token in
-                //    continuation.yield(token)
-                // }
-                
-                // Simulation for now to ensure compilation stability
-                let words = "This is a simulated response from the local AI model (HY-1.8B). Inference logic is stubbed in LLMEngine.swift to ensure safe initial compilation.".components(separatedBy: " ")
-                
-                for word in words {
-                    if !isGenerating { break }
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                    continuation.yield(word + " ")
+                // Real inference logic
+                if let context = self.context {
+                    await context.completion(fullPrompt) { token in
+                        continuation.yield(token)
+                    }
+                } else {
+                    continuation.yield("Error: Model context not initialized.")
                 }
                 
                 continuation.finish()
@@ -57,6 +52,7 @@ class LLMEngine {
     
     func stopGeneration() {
         isGenerating = false
+        // Implementing stop logic might require context cancellation if supported
     }
     
     private func buildPrompt(system: String, user: String) -> String {

@@ -7,8 +7,8 @@ struct FileExplorerView: View {
     var isOpaque: Bool
     var onSelectFile: (FileItem) -> Void
     
-    @State private var showingSettings = false
-    @State private var showingNewChatDialog = false
+    @Binding var showingSettings: Bool
+    @Binding var showingNewChatDialog: Bool
     @State private var selectedFile: FileItem?
     @State private var items: [FileItem] = []
     
@@ -33,17 +33,7 @@ struct FileExplorerView: View {
             .onAppear {
                 items = fileSystem.getAllFilesRecursive()
             }
-            .sheet(isPresented: $showingNewChatDialog) {
-                NewChatDialog(isPresented: $showingNewChatDialog) { name in
-                    chatManager.createNewSession(title: name)
-                }
-            }
-            .sheet(isPresented: $showingSettings) {
-                NavigationView {
-                    SettingsView(modelDownloader: modelDownloader) // Passed
-                        .navigationBarItems(trailing: Button("Done") { showingSettings = false })
-                }
-            }
+
             .background(
                 NavigationLink(
                     destination: FileDetailView(fileItem: selectedFile ?? FileItem(name: "", isDirectory: false, children: nil, path: URL(fileURLWithPath: ""))),

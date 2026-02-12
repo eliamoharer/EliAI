@@ -18,6 +18,9 @@ struct ContentView: View {
     @State private var taskManager: TaskManager
     @State private var memoryManager: MemoryManager
     
+    @State private var showingSettings = false
+    @State private var showingNewChatDialog = false
+    
     init() {
         let fs = FileSystemManager()
         _fileSystem = State(initialValue: fs)
@@ -38,7 +41,9 @@ struct ContentView: View {
                 onSelectFile: { file in
                     // Handle file selection (e.g. open in detail view or chat context)
                     // For now, it just navigates within its own view hierarchy
-                }
+                },
+                showingSettings: $showingSettings,
+                showingNewChatDialog: $showingNewChatDialog
             )
             .opacity(isChatVisible ? 0 : (isExplorerOpaque ? 1.0 : 0.3))
             .animation(.easeInOut, value: isChatVisible)
@@ -103,6 +108,17 @@ struct ContentView: View {
                         }
                 )
             }
+        .sheet(isPresented: $showingNewChatDialog) {
+            NewChatDialog(isPresented: $showingNewChatDialog) { name in
+                chatManager.createNewSession(title: name)
+            }
+        }
+        .sheet(isPresented: $showingSettings) {
+             NavigationView {
+                 SettingsView(modelDownloader: modelDownloader)
+                     .navigationBarItems(trailing: Button("Done") { showingSettings = false })
+             }
+        }
             .padding(.bottom, 0) // Explicitly ensure no bottom padding
 
             
