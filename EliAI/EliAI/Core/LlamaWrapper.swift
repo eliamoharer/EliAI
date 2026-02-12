@@ -8,12 +8,21 @@ class LlamaModel {
     
     init(path: String) throws {
         llama_backend_init()
-        let header = llama_model_default_params()
+        var header = llama_model_default_params()
+        
+        // Critical: Set n_gpu_layers to 0 to prevent crashes from missing Metal resources
+        // Once we confirm CPU works, we can look into bundling ggml-metal.metal
+        header.n_gpu_layers = 0 
+        
         print("LlamaWrapper: Attempting to load model from \(path)")
-        self.model = llama_load_model_from_file(path, header)
+        
+        // Use explicit C-string handling for safety
+        self.model = path.withCString { cPath in
+            return llama_load_model_from_file(cPath, header)
+        }
         
         if self.model == nil {
-            print("LlamaWrapper: Failed to load model. Check path and permissions.")
+            print("LlamaWrapper: Failed to load model. Check path, permissions, or corruption.")
             throw NSError(domain: "LlamaError", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to load model at \(path)"])
         }
         print("LlamaWrapper: Model loaded successfully.")
