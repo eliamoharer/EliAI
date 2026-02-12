@@ -33,30 +33,53 @@ jobs:
         echo "--- Verifying LFS content ---"
         ls -R llama.cpp
         
-        # Use base64 to avoid any indentation or shell parsing issues with SwiftPM manifest
-        # This content corresponds to the robust Package.swift with swift-tools-version: 5.9
-        echo "Ly8gc3dpZnQtdG9vbHMtdmVyc2lvbjogNS45DQppbXBvcnQgUGFja2FnZURlc2Ny" > Package.b64
-        echo "aXB0aW9uDQoNCmxldCBwYWNrYWdlID0gUGFja2FnZSgNCiAgICBuYW1lOiAiTExN" >> Package.b64
-        echo "IiwNCiAgICBwbGF0Zm9ybXM6IFsubWFjT1MoLnYxMyksIC5pT1MoLnYxNildLA0K" >> Package.b64
-        echo "ICAgIHByb2R1Y3RzOiBbDQogICAgICAgIC5saWJyYXJ5KG5hbWU6ICJMTE0iLCB0" >> Package.b64
-        echo "YXJnZXRzOiBbIkxMTSJdKSwNCiAgICBdLA0KICAgIGRlcGVuZGVuY2llczogWw0K" >> Package.b64
-        echo "ICAgICAgICAucGFja2FnZSh1cmw6ICJodHRwczovL2dpdGh1Yi5jb20vYXBwbGUv" >> Package.b64
-        echo "c3dpZnQtc3ludGF4LmdpdCIsIGZyb206ICI2MDAuMC4xIiksDQogICAgXSwNCiAg" >> Package.b64
-        echo "ICB0YXJnZXRzOiBbDQogICAgICAgIC50YXJnZXQoDQogICAgICAgICAgICBuYW1l" >> Package.b64
-        echo "OiAiTExNIiwNCiAgICAgICAgICAgIGRlcGVuZGVuY2llczogWw0KICAgICAgICAg" >> Package.b64
-        echo "ICAgICAgICJsbG0iLA0KICAgICAgICAgICAgICAgICJMTE1NYWNyb3NJbXBsZW1l" >> Package.b64
-        echo "bnRhdGlvbiIsDQogICAgICAgICAgICBdLA0KICAgICAgICAgICAgcGF0aDogIlNv" >> Package.b64
-        echo "dXJjZXMvTExNIg0KICAgICAgICApLA0KICAgICAgICAuYmluYXJ5VGFyZ2V0KA0K" >> Package.b64
-        echo "ICAgICAgICAgICAgbmFtZTogImxsbSIsDQogICAgICAgICAgICBwYXRoOiAibGxh" >> Package.b64
-        echo "bWEuY3BwL2xsYW1hLnhjZnJhbWV3b3JrIg0KICAgICAgICApLA0KICAgICAgICAu" >> Package.b64
-        echo "bWFjcm8oDQogICAgICAgICAgICBuYW1lOiAiTExNTWFjcm9zSW1wbGVtZW50YXRp" >> Package.b64
-        echo "b24iLA0KICAgICAgICAgICAgZGVwZW5kZW5jaWVzOiBbDQogICAgICAgICAgICAg" >> Package.b64
-        echo "ICAgLnByb2R1Y3QobmFtZTogIlN3aWZ0U3ludGF4TWFjcm9zIiwgcGFja2FnZTog" >> Package.b64
-        echo "InN3aWZ0LXN5bnRheCIpLA0KICAgICAgICAgICAgICAgIC5wcm9kdWN0KG5hbWU6" >> Package.b64
-        echo "ICJTd2lmdENvbXBpbGVyUGx1Z2luIiwgcGFja2FnZTogInN3aWZ0LXN5bnRheCIp" >> Package.b64
-        echo "DQogICAgICAgICAgICBdDQogICAgICAgICkNCiAgICBdDQopDQo=" >> Package.b64
+        echo "--- Writing Package.swift via Python ---"
+        python3 -c "
+        import os
         
-        base64 -d -i Package.b64 > Package.swift
+        manifest = [
+            '// swift-tools-version: 5.9',
+            'import PackageDescription',
+            '',
+            'let package = Package(',
+            '    name: \"LLM\",',
+            '    platforms: [.macOS(.v13), .iOS(.v16)],',
+            '    products: [',
+            '        .library(name: \"LLM\", targets: [\"LLM\"]),',
+            '    ],',
+            '    dependencies: [',
+            '        .package(url: \"https://github.com/apple/swift-syntax.git\", from: \"600.0.1\"),',
+            '    ],',
+            '    targets: [',
+            '        .target(',
+            '            name: \"LLM\",',
+            '            dependencies: [',
+            '                \"llm\",',
+            '                \"LLMMacrosImplementation\",',
+            '            ],',
+            '            path: \"Sources/LLM\"',
+            '        ),',
+            '        .binaryTarget(',
+            '            name: \"llm\",',
+            '            path: \"llama.cpp/llama.xcframework\"',
+            '        ),',
+            '        .macro(',
+            '            name: \"LLMMacrosImplementation\",',
+            '            dependencies: [',
+            '                .product(name: \"SwiftSyntaxMacros\", package: \"swift-syntax\"),',
+            '                .product(name: \"SwiftCompilerPlugin\", package: \"swift-syntax\")',
+            '            ]',
+            '        )',
+            '    ]',
+            ')'
+        ]
+        
+        with open('Package.swift', 'w') as f:
+            f.write('\n'.join(manifest))
+        "
+        
+        echo "--- Verified Package.swift ---"
+        cat Package.swift
         
         echo "--- New Package.swift Content ---"
         cat Package.swift
