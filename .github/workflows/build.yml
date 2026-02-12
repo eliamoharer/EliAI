@@ -111,19 +111,22 @@ jobs:
     - name: Resolve Dependencies
       run: xcodebuild -resolvePackageDependencies -project EliAI.xcodeproj -scheme EliAI -skipPackagePluginValidation
 
+    - name: Show Destinations
+      run: xcodebuild -showdestinations -project EliAI.xcodeproj -scheme EliAI
+
     - name: Build App
       # Build the generated project
       run: |
         xcodebuild build \
           -project EliAI.xcodeproj \
           -scheme EliAI \
-          -sdk iphoneos \
+          -destination 'generic/platform=iOS' \
           -configuration Release \
           -derivedDataPath build \
           -skipPackagePluginValidation \
           -skipMacroValidation \
           IDEPackageEnablePrebuilts=YES \
-          OTHER_SWIFT_FLAGS="$(inherited) -enable-experimental-feature Macros" \
+          OTHER_SWIFT_FLAGS='$(inherited) -enable-experimental-feature Macros' \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO \
           CODE_SIGNING_ALLOWED=NO
