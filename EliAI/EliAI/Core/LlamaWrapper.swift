@@ -110,6 +110,12 @@ class LlamaContext {
         self.batch = llama_batch_init(2048, 0, 1)
     }
     
+    func resetContext() {
+        guard let ctx = context else { return }
+        print("LlamaWrapper: Clearing KV Cache...")
+        llama_kv_cache_clear(ctx)
+    }
+    
     deinit {
         llama_batch_free(batch)
         if let context = context {
@@ -139,32 +145,32 @@ class LlamaContext {
         
         var n_cur = Int32(tokens.count)
         
+        // 3. Initialize high-quality sampler
+        let n_vocab = llama_model_n_vocab(mdl)
+        let smpl = llama_sampler_chain_init(llama_sampler_chain_default_params())
+        llama_sampler_chain_add(smpl, llama_sampler_init_penalties(n_vocab, 64, 1.1, 0.0, 0.0))
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40))
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95, 1))
+        llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.8))
+        llama_sampler_chain_add(smpl, llama_sampler_init_dist(UInt32(Date().timeIntervalSince1970)))
+        
+        defer {
+            llama_sampler_free(smpl)
+        }
+        
+        // 4. Generation Loop
         for _ in 0..<500 {
-            let n_vocab = llama_model_n_vocab(mdl)
-            let logits = llama_get_logits_ith(ctx, batch.n_tokens - 1)
+            let id = llama_sampler_sample(smpl, ctx, batch.n_tokens - 1)
             
-            var max_logit = -Float.infinity
-            var best_token_id: llama_token = 0
+            if id == llama_model_token_eos(mdl) { break }
             
-            if let logits = logits {
-                for id in 0..<n_vocab {
-                    let logit = logits[Int(id)]
-                    if logit > max_logit {
-                        max_logit = logit
-                        best_token_id = id
-                    }
-                }
-            }
-            
-            if best_token_id == llama_model_token_eos(mdl) { break }
-            
-            let piece = token_to_piece(token: best_token_id)
+            let piece = token_to_piece(token: id)
             onToken(piece)
             
             if n_cur >= 2048 { break }
             
             batch.n_tokens = 1
-            batch.token[0] = best_token_id
+            batch.token[0] = id
             batch.pos[0] = n_cur
             batch.n_seq_id[0] = 1
             batch.seq_id[0]![0] = 0
@@ -172,6 +178,8 @@ class LlamaContext {
             
             n_cur += 1
             if llama_decode(ctx, batch) != 0 { break }
+            
+            llama_sampler_accept(smpl, id)
             await Task.yield()
         }
     }

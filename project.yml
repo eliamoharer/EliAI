@@ -24,10 +24,10 @@ targets:
       OTHER_SWIFT_FLAGS:
         - -cxx-interoperability-mode=default
     dependencies:
-      - package: llama.cpp
+      - package: llama
         product: llama
       - sdk: Accelerate.framework
 packages:
-  llama.cpp:
-    url: https://github.com/ggml-org/llama.cpp.git
+  llama:
+    url: https://github.com/ggerganov/llama.cpp
     branch: master
