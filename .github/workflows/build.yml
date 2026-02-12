@@ -27,9 +27,9 @@ jobs:
           ${{ runner.os }}-spm-
 
     - name: Set up Swift
-      uses: swift-actions/setup-swift@v1
+      uses: swift-actions/setup-swift@v2
       with:
-        swift-version: "5.9"
+        swift-version: "6.0"
 
     - name: Install XcodeGen
       run: brew install xcodegen
@@ -38,7 +38,7 @@ jobs:
       run: xcodegen generate
 
     - name: Resolve Dependencies
-      run: xcodebuild -resolvePackageDependencies -project EliAI.xcodeproj -scheme EliAI -skipPackagePluginValidation
+      run: xcodebuild -resolvePackageDependencies -project EliAI.xcodeproj -scheme EliAI -skipPackagePluginValidation IDEPackageEnablePrebuilts=YES
 
     - name: Build App
       # Build the generated project
@@ -51,6 +51,7 @@ jobs:
           -derivedDataPath build \
           -skipPackagePluginValidation \
           -skipMacroValidation \
+          IDEPackageEnablePrebuilts=YES \
           OTHER_SWIFT_FLAGS="$(inherited) -enable-experimental-feature Macros" \
           CODE_SIGN_IDENTITY="" \
           CODE_SIGNING_REQUIRED=NO \

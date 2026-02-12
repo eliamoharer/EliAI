@@ -27,8 +27,13 @@ targets:
     dependencies:
       - package: LLM
         product: LLM
+      - package: swift-syntax
+        product: SwiftSyntaxMacros
       - sdk: Accelerate.framework
 packages:
   LLM:
     url: https://github.com/eastriverlee/LLM.swift
     branch: main
+  swift-syntax:
+    url: https://github.com/apple/swift-syntax.git
+    from: 602.0.0

@@ -25,7 +25,7 @@ class LLMEngine {
         // LLM.swift handles the heavy lifting of backend init & Metal acceleration
         do {
             let modelURL = URL(fileURLWithPath: path)
-            let loadedLLM = try await LLM(from: modelURL, template: .qwen)
+            let loadedLLM = try await LLM(from: modelURL, template: .none)
             
             self.llm = loadedLLM
             self.modelPath = path
@@ -78,11 +78,14 @@ class LLMEngine {
                 
                 // Stream using 2026 native high-level API
                 do {
+                    await llm.resetContext()
+                    
                     // Qwen 3 / ChatML Formatting
                     let formattedPrompt = "<|im_start|>system\n\(systemPrompt.isEmpty ? "You are EliAI, a helpful assistant." : systemPrompt)<|im_end|>\n<|im_start|>user\n\(prompt)<|im_end|>\n<|im_start|>assistant\n"
                     
                     for try await token in llm.generate(formattedPrompt) {
                         if Task.isCancelled { break }
+                        if token.contains("<|im_end|>") { break }
                         continuation.yield(token)
                     }
                 } catch {
