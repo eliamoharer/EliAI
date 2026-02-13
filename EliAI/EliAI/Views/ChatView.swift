@@ -51,12 +51,6 @@ struct ChatView: View {
                 keyboardHeight = overlap
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
-            let overlap = keyboardOverlap(from: notification)
-            withAnimation(keyboardAnimation(for: notification)) {
-                keyboardHeight = overlap
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
             withAnimation(keyboardAnimation(for: notification)) {
                 keyboardHeight = 0
@@ -410,7 +404,7 @@ struct ChatView: View {
 
     private var keyboardLift: CGFloat {
         guard !isCollapsed else { return 0 }
-        return max(0, keyboardHeight - safeAreaBottomInset)
+        return max(0, keyboardHeight)
     }
 
     private var inputBottomInset: CGFloat {
@@ -418,7 +412,7 @@ struct ChatView: View {
             return 12
         }
         if keyboardLift > 0 {
-            return keyboardLift + 16
+            return keyboardLift
         }
         return 30
     }
@@ -428,10 +422,6 @@ struct ChatView: View {
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }
             .first(where: { $0.isKeyWindow })
-    }
-
-    private var safeAreaBottomInset: CGFloat {
-        keyWindow?.safeAreaInsets.bottom ?? 0
     }
 
     private func keyboardOverlap(from notification: Notification) -> CGFloat {
@@ -447,10 +437,19 @@ struct ChatView: View {
     }
 
     private func keyboardAnimation(for notification: Notification) -> Animation {
-        if let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double {
+        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        let curveRaw = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int ?? 0
+
+        switch curveRaw {
+        case 1:
+            return .easeIn(duration: duration)
+        case 2:
             return .easeOut(duration: duration)
+        case 3:
+            return .linear(duration: duration)
+        default:
+            return .easeInOut(duration: duration)
         }
-        return .easeOut(duration: 0.25)
     }
 
     private var chatPanelBackground: some View {

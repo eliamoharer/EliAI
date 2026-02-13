@@ -7,6 +7,9 @@ private struct MessageSegment {
     enum Kind {
         case markdown(String)
         case math(String, display: Bool)
+        case code(String, language: String?)
+        case rule
+        case table(String)
     }
 
     let kind: Kind
@@ -31,9 +34,7 @@ struct MessageBubble: View {
     var body: some View {
         let parsed = parseThinkingSections(from: message.content)
         let visibleText = message.role == .assistant ? parsed.visible : message.content
-        let segments = isStreaming
-            ? [MessageSegment(kind: .markdown(visibleText))]
-            : parseContentSegments(from: visibleText)
+        let segments = parseContentSegments(from: visibleText)
 
         HStack(alignment: .bottom, spacing: 8) {
             if message.role == .user {
@@ -141,7 +142,56 @@ struct MessageBubble: View {
         case let .math(latex, display):
             MathSegmentView(latex: latex, display: display, role: message.role)
                 .padding(.vertical, display ? 4 : 1)
+        case let .code(code, language):
+            codeBlockView(code: code, language: language)
+        case .rule:
+            Rectangle()
+                .fill(Color.primary.opacity(message.role == .user ? 0.35 : 0.18))
+                .frame(height: 1)
+                .padding(.vertical, 4)
+        case let .table(tableText):
+            tableBlockView(text: tableText)
         }
+    }
+
+    @ViewBuilder
+    private func codeBlockView(code: String, language: String?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let language, !language.isEmpty {
+                Text(language.uppercased())
+                    .font(.caption2)
+                    .foregroundColor(message.role == .user ? Color.white.opacity(0.85) : .secondary)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(code)
+                    .font(.system(.footnote, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(message.role == .user ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
+        )
+    }
+
+    @ViewBuilder
+    private func tableBlockView(text: String) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Text(text)
+                .font(.system(.footnote, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(message.role == .user ? Color.white.opacity(0.10) : Color.black.opacity(0.06))
+        )
     }
 
     private func parseThinkingSections(from text: String) -> (visible: String, thinking: String) {
@@ -183,14 +233,100 @@ struct MessageBubble: View {
     }
 
     private func parseContentSegments(from text: String) -> [MessageSegment] {
-        let delimiters = [
-            MathDelimiter(open: "$$", close: "$$", display: true),
-            MathDelimiter(open: "\\[", close: "\\]", display: true)
-        ]
-
         guard !text.isEmpty else {
             return [MessageSegment(kind: .markdown(" "))]
         }
+
+        let codeAwareSegments = parseCodeFenceAwareSegments(text)
+        var parsedSegments: [MessageSegment] = []
+
+        for segment in codeAwareSegments {
+            switch segment.kind {
+            case let .markdown(markdownChunk):
+                parsedSegments.append(contentsOf: parseMathSegments(from: markdownChunk))
+            default:
+                parsedSegments.append(segment)
+            }
+        }
+
+        if parsedSegments.isEmpty {
+            parsedSegments = [MessageSegment(kind: .markdown(text))]
+        }
+
+        return promoteStandaloneLatex(in: mergeMarkdownSegments(parsedSegments))
+    }
+
+    private func parseCodeFenceAwareSegments(_ text: String) -> [MessageSegment] {
+        var segments: [MessageSegment] = []
+        var cursor = text.startIndex
+
+        while let openRange = text[cursor...].range(of: "```") {
+            let leading = String(text[cursor..<openRange.lowerBound])
+            if !leading.isEmpty {
+                segments.append(MessageSegment(kind: .markdown(leading)))
+            }
+
+            let payloadStart = openRange.upperBound
+            guard let closeRange = text[payloadStart...].range(of: "```") else {
+                let remainder = String(text[openRange.lowerBound...])
+                if !remainder.isEmpty {
+                    segments.append(MessageSegment(kind: .markdown(remainder)))
+                }
+                cursor = text.endIndex
+                break
+            }
+
+            let rawPayload = String(text[payloadStart..<closeRange.lowerBound])
+            let payload = parseCodeFencePayload(rawPayload)
+            segments.append(MessageSegment(kind: .code(payload.code, language: payload.language)))
+            cursor = closeRange.upperBound
+        }
+
+        if cursor < text.endIndex {
+            let trailing = String(text[cursor...])
+            if !trailing.isEmpty {
+                segments.append(MessageSegment(kind: .markdown(trailing)))
+            }
+        }
+
+        return segments.isEmpty ? [MessageSegment(kind: .markdown(text))] : segments
+    }
+
+    private func parseCodeFencePayload(_ rawPayload: String) -> (language: String?, code: String) {
+        var payload = rawPayload
+        if payload.hasPrefix("\n") {
+            payload.removeFirst()
+        }
+
+        var language: String?
+        if let newlineIndex = payload.firstIndex(of: "\n") {
+            let firstLine = String(payload[..<newlineIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if firstLine.range(of: #"^[A-Za-z0-9_+\-#.]+$"#, options: .regularExpression) != nil {
+                language = firstLine.lowercased()
+                payload = String(payload[payload.index(after: newlineIndex)...])
+            }
+        }
+
+        while payload.hasSuffix("\n") {
+            payload.removeLast()
+        }
+
+        return (language, payload)
+    }
+
+    private func parseMathSegments(from text: String) -> [MessageSegment] {
+        let delimiters = [
+            MathDelimiter(open: "\\begin{equation*}", close: "\\end{equation*}", display: true),
+            MathDelimiter(open: "\\begin{equation}", close: "\\end{equation}", display: true),
+            MathDelimiter(open: "\\begin{align*}", close: "\\end{align*}", display: true),
+            MathDelimiter(open: "\\begin{align}", close: "\\end{align}", display: true),
+            MathDelimiter(open: "\\begin{multline*}", close: "\\end{multline*}", display: true),
+            MathDelimiter(open: "\\begin{multline}", close: "\\end{multline}", display: true),
+            MathDelimiter(open: "$$", close: "$$", display: true),
+            MathDelimiter(open: "\\[", close: "\\]", display: true),
+            MathDelimiter(open: "\\(", close: "\\)", display: false),
+            MathDelimiter(open: "$", close: "$", display: false)
+        ]
 
         var segments: [MessageSegment] = []
         var cursor = text.startIndex
@@ -225,11 +361,7 @@ struct MessageBubble: View {
             }
         }
 
-        if segments.isEmpty {
-            return promoteStandaloneLatex(in: [MessageSegment(kind: .markdown(text))])
-        }
-
-        return promoteStandaloneLatex(in: mergeMarkdownSegments(segments))
+        return segments.isEmpty ? [MessageSegment(kind: .markdown(text))] : segments
     }
 
     private func mergeMarkdownSegments(_ segments: [MessageSegment]) -> [MessageSegment] {
@@ -244,7 +376,7 @@ struct MessageBubble: View {
                 } else {
                     merged.append(segment)
                 }
-            case .math:
+            default:
                 merged.append(segment)
             }
         }
@@ -257,10 +389,10 @@ struct MessageBubble: View {
 
         for segment in segments {
             switch segment.kind {
-            case .math:
-                promoted.append(segment)
             case let .markdown(text):
                 promoted.append(contentsOf: splitMarkdownIntoLatexAwareSegments(text))
+            default:
+                promoted.append(segment)
             }
         }
 
@@ -270,16 +402,36 @@ struct MessageBubble: View {
     private func splitMarkdownIntoLatexAwareSegments(_ text: String) -> [MessageSegment] {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         var result: [MessageSegment] = []
+        var index = 0
 
-        for (index, rawLine) in lines.enumerated() {
-            let line = String(rawLine)
+        while index < lines.count {
+            let line = String(lines[index])
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if let inlineLatex = extractStandaloneSingleDollarMath(from: trimmed) {
-                result.append(MessageSegment(kind: .math(inlineLatex, display: false)))
-                if index < lines.count - 1 {
-                    result.append(MessageSegment(kind: .markdown("\n")))
+            if isHorizontalRule(trimmed) {
+                result.append(MessageSegment(kind: .rule))
+                index += 1
+                continue
+            }
+
+            if index + 1 < lines.count,
+               looksLikeTableHeader(line),
+               looksLikeTableDivider(String(lines[index + 1])) {
+                var tableLines: [String] = [line, String(lines[index + 1])]
+                index += 2
+
+                while index < lines.count {
+                    let candidate = String(lines[index])
+                    let trimmedCandidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if candidate.contains("|"), !trimmedCandidate.isEmpty {
+                        tableLines.append(candidate)
+                        index += 1
+                    } else {
+                        break
+                    }
                 }
+
+                result.append(MessageSegment(kind: .table(tableLines.joined(separator: "\n"))))
                 continue
             }
 
@@ -294,20 +446,29 @@ struct MessageBubble: View {
                     result.append(MessageSegment(kind: .markdown(restored)))
                 }
             }
+
+            index += 1
         }
 
         return result
     }
 
-    private func extractStandaloneSingleDollarMath(from line: String) -> String? {
-        guard line.hasPrefix("$"), line.hasSuffix("$") else { return nil }
-        guard !line.hasPrefix("$$"), !line.hasSuffix("$$") else { return nil }
-        guard line.count >= 3 else { return nil }
+    private func isHorizontalRule(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 3 else { return false }
+        if trimmed.allSatisfy({ $0 == "-" }) { return true }
+        if trimmed.allSatisfy({ $0 == "*" }) { return true }
+        if trimmed.allSatisfy({ $0 == "_" }) { return true }
+        return false
+    }
 
-        let start = line.index(after: line.startIndex)
-        let end = line.index(before: line.endIndex)
-        let content = String(line[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return content.isEmpty ? nil : content
+    private func looksLikeTableHeader(_ line: String) -> Bool {
+        line.contains("|") && line.split(separator: "|").count >= 3
+    }
+
+    private func looksLikeTableDivider(_ line: String) -> Bool {
+        line.trimmingCharacters(in: .whitespacesAndNewlines)
+            .range(of: #"^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$"#, options: .regularExpression) != nil
     }
 
     private func looksLikeStandaloneLatex(_ line: String) -> Bool {
@@ -447,13 +608,6 @@ struct MessageBubble: View {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\\n", with: "\n")
 
-        // Horizontal rules are poorly represented by AttributedString markdown in this view.
-        value = value.replacingOccurrences(
-            of: #"(?m)^\s*---+\s*$"#,
-            with: "",
-            options: .regularExpression
-        )
-
         value = value.replacingOccurrences(
             of: #"(?<!\n)\s+(#{1,6}\s)"#,
             with: "\n$1",
@@ -465,41 +619,19 @@ struct MessageBubble: View {
             options: .regularExpression
         )
 
-        // Use bold lines instead of heading blocks for predictable rendering in Text(AttributedString).
-        value = value.replacingOccurrences(
-            of: #"(?m)^\s*#{1,6}\s*(.+?)\s*$"#,
-            with: "**$1**",
-            options: .regularExpression
-        )
-
-        value = value.replacingOccurrences(
-            of: #"(?m)^(\*\*.+\*\*)\n(?!\n|[-*+]\s|\d+\.\s)"#,
-            with: "$1\n\n",
-            options: .regularExpression
-        )
-
         value = value.replacingOccurrences(
             of: #"(?<!\n)\s+(\d+\.\s)"#,
             with: "\n$1",
             options: .regularExpression
         )
-        value = value.replacingOccurrences(
-            of: #":\s*(\*\*[^*\n]{2,}\*\*)"#,
-            with: ":\n$1",
-            options: .regularExpression
-        )
+
         let lines = value.split(separator: "\n", omittingEmptySubsequences: false)
         let normalizedLines = lines.map { rawLine -> String in
             let line = String(rawLine)
             return normalizeInlineListSyntax(in: line)
         }
 
-        let normalized = normalizedLines.joined(separator: "\n")
-        return normalized.replacingOccurrences(
-            of: #"(?<!\n)\n(?!\n|[-*+]\s|\d+\.\s)"#,
-            with: "\n\n",
-            options: .regularExpression
-        )
+        return normalizedLines.joined(separator: "\n")
     }
 
     private func normalizeInlineListSyntax(in line: String) -> String {
@@ -507,9 +639,6 @@ struct MessageBubble: View {
         let trimmed = output.trimmingCharacters(in: .whitespaces)
 
         if trimmed.isEmpty {
-            return output
-        }
-        if trimmed == "---" || trimmed.hasPrefix("#") {
             return output
         }
 
@@ -520,23 +649,12 @@ struct MessageBubble: View {
             output = prefix + "\n- " + listPart
         }
 
-        if output.contains(":"), output.contains(" - "), !output.contains("\n- ") {
-            if let colonRange = output.range(of: ":") {
-                let prefix = String(output[..<colonRange.upperBound])
-                let rest = String(output[colonRange.upperBound...]).trimmingCharacters(in: .whitespaces)
-                if !rest.isEmpty {
-                    output = prefix + "\n- " + rest
-                }
-            }
-        }
-
         let looksLikeInlineList = output.contains(" - **") ||
             output.contains(" - `") ||
             output.contains(" - [") ||
             output.contains(" - (") ||
             output.range(of: #"\*\*[^*\n]{2,}\*\*\s*-\s*"#, options: .regularExpression) != nil ||
-            output.range(of: #"\*\*[^*\n]{2,}\s-\s[^*\n]{2,}\*\*"#, options: .regularExpression) != nil ||
-            output.trimmingCharacters(in: .whitespaces).hasPrefix("#")
+            output.range(of: #"\*\*[^*\n]{2,}\s-\s[^*\n]{2,}\*\*"#, options: .regularExpression) != nil
 
         if looksLikeInlineList {
             output = output.replacingOccurrences(
