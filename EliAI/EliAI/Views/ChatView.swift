@@ -59,30 +59,11 @@ struct ChatView: View {
     }
 
     private var topGrabber: some View {
-        Group {
-            if isCollapsed {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(.ultraThinMaterial)
-                        .frame(width: 96, height: 26)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.35), lineWidth: 0.7)
-                        )
-                    Capsule()
-                        .fill(Color.primary.opacity(0.26))
-                        .frame(width: 44, height: 5)
-                }
-                .padding(.top, 4)
-                .padding(.bottom, 4)
-            } else {
-                Capsule()
-                    .fill(Color.primary.opacity(0.22))
-                    .frame(width: 42, height: 5)
-                    .padding(.top, 8)
-                    .padding(.bottom, 6)
-            }
-        }
+        Capsule()
+            .fill(Color.primary.opacity(0.22))
+            .frame(width: isCollapsed ? 56 : 42, height: 5)
+            .padding(.top, isCollapsed ? 10 : 8)
+            .padding(.bottom, isCollapsed ? 8 : 6)
     }
 
     private var headerSection: some View {
@@ -407,7 +388,7 @@ struct ChatView: View {
             }
             .padding(.horizontal)
             .padding(.top, 8)
-            .padding(.bottom, (isCollapsed ? 12 : 34) + keyboardLift)
+            .padding(.bottom, inputBottomInset)
         }
         .background(
             Rectangle()
@@ -423,7 +404,25 @@ struct ChatView: View {
 
     private var keyboardLift: CGFloat {
         guard !isCollapsed else { return 0 }
-        return max(0, keyboardHeight)
+        return max(0, keyboardHeight - safeAreaBottomInset)
+    }
+
+    private var inputBottomInset: CGFloat {
+        if isCollapsed {
+            return 12
+        }
+        if keyboardLift > 0 {
+            return keyboardLift + 8
+        }
+        return 30
+    }
+
+    private var safeAreaBottomInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first(where: { $0.isKeyWindow })?
+            .safeAreaInsets.bottom ?? 0
     }
 
     private func keyboardOverlap(from notification: Notification) -> CGFloat {

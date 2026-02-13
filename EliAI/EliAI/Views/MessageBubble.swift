@@ -275,6 +275,14 @@ struct MessageBubble: View {
             let line = String(rawLine)
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
+            if let inlineLatex = extractStandaloneSingleDollarMath(from: trimmed) {
+                result.append(MessageSegment(kind: .math(inlineLatex, display: false)))
+                if index < lines.count - 1 {
+                    result.append(MessageSegment(kind: .markdown("\n")))
+                }
+                continue
+            }
+
             if looksLikeStandaloneLatex(trimmed) {
                 result.append(MessageSegment(kind: .math(trimmed, display: true)))
             } else {
@@ -289,6 +297,17 @@ struct MessageBubble: View {
         }
 
         return result
+    }
+
+    private func extractStandaloneSingleDollarMath(from line: String) -> String? {
+        guard line.hasPrefix("$"), line.hasSuffix("$") else { return nil }
+        guard !line.hasPrefix("$$"), !line.hasSuffix("$$") else { return nil }
+        guard line.count >= 3 else { return nil }
+
+        let start = line.index(after: line.startIndex)
+        let end = line.index(before: line.endIndex)
+        let content = String(line[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return content.isEmpty ? nil : content
     }
 
     private func looksLikeStandaloneLatex(_ line: String) -> Bool {
@@ -443,11 +462,6 @@ struct MessageBubble: View {
             options: .regularExpression
         )
         value = value.replacingOccurrences(
-            of: #"(?<!\n)\n(?!\n|[-*+]\s|\d+\.\s|#{1,6}\s)"#,
-            with: "  \n",
-            options: .regularExpression
-        )
-        value = value.replacingOccurrences(
             of: #":\s*(\*\*[^*\n]{2,}\*\*)"#,
             with: ":\n$1",
             options: .regularExpression
@@ -458,7 +472,12 @@ struct MessageBubble: View {
             return normalizeInlineListSyntax(in: line)
         }
 
-        return normalizedLines.joined(separator: "\n")
+        let normalized = normalizedLines.joined(separator: "\n")
+        return normalized.replacingOccurrences(
+            of: #"(?<!\n)\n(?!\n|[-*+]\s|\d+\.\s|#{1,6}\s)"#,
+            with: "\n\n",
+            options: .regularExpression
+        )
     }
 
     private func normalizeInlineListSyntax(in line: String) -> String {
