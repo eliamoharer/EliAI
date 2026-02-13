@@ -12,6 +12,7 @@ struct ChatView: View {
     @State private var inputText: String = ""
     @FocusState private var isInputFocused: Bool
     @State private var showFileImporter = false
+    private let bottomAnchorID = "chatBottomAnchor"
     
     var body: some View {
         VStack(spacing: 0) {
@@ -172,7 +173,7 @@ struct ChatView: View {
             // Messages List
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 16) {
+                    VStack(spacing: 16) {
                         // Introduction / Empty State / Loading State
                         if (chatManager.currentSession?.messages.isEmpty ?? true) {
                             VStack(spacing: 16) {
@@ -242,9 +243,15 @@ struct ChatView: View {
                             }
                             .padding(.horizontal)
                         }
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id(bottomAnchorID)
                     }
                     .padding()
                 }
+                .id(chatManager.currentSession?.id)
+                .scrollDismissesKeyboard(.interactively)
                 .onTapGesture {
                     isInputFocused = false
                 }
@@ -254,11 +261,23 @@ struct ChatView: View {
                 .onChange(of: llmEngine.isGenerating) { _, isGenerating in
                     if isGenerating { scrollToBottom(proxy: proxy) }
                 }
+                .onChange(of: chatManager.currentSession?.messages.last?.id) { _, _ in
+                    scrollToBottom(proxy: proxy)
+                }
+                .onChange(of: chatManager.currentSession?.messages.last?.content) { _, _ in
+                    if llmEngine.isGenerating {
+                        scrollToBottom(proxy: proxy, animated: false)
+                    }
+                }
+                .onChange(of: chatManager.currentSession?.id) { _, _ in
+                    scrollToBottom(proxy: proxy)
+                }
             }
-             
+
             // Input Area
             VStack(spacing: 0) {
                 Divider()
+                    .overlay(Color.white.opacity(0.25))
                 HStack(alignment: .bottom) {
                     TextField("Message...", text: $inputText, axis: .vertical)
                         .focused($isInputFocused)
@@ -289,26 +308,23 @@ struct ChatView: View {
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
-                .padding(.bottom, 10)
+                .padding(.bottom, 12)
             }
+            .background(
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .overlay(Color.white.opacity(0.04))
+            )
         }
         .background(
             Rectangle()
                 .fill(.ultraThinMaterial)
                 .overlay(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.24),
-                            Color.white.opacity(0.08),
-                            Color.white.opacity(0.02)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+                    Color.white.opacity(0.05)
                 )
                 .overlay(
                     Rectangle()
-                        .stroke(Color.white.opacity(0.18), lineWidth: 0.6)
+                        .stroke(Color.white.opacity(0.20), lineWidth: 0.6)
                 )
                 .ignoresSafeArea()
         )
@@ -372,14 +388,17 @@ struct ChatView: View {
 
                 await MainActor.run {
                     assistantMessage.content = fullResponse
-                    updateLastMessage(with: assistantMessage)
+                    chatManager.updateLastMessage(assistantMessage, persist: false)
                 }
             }
-            
+
             // Final update
             await MainActor.run {
                 assistantMessage.content = fullResponse
-                updateLastMessage(with: assistantMessage)
+                chatManager.updateLastMessage(assistantMessage)
+                if fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    chatManager.removeMessage(id: assistantMessage.id)
+                }
             }
             
             // 3. Tool Check (Agentic behavior)
@@ -406,20 +425,13 @@ struct ChatView: View {
         }
     }
     
-    private func updateLastMessage(with message: ChatMessage) {
-        if var session = chatManager.currentSession {
-            if !session.messages.isEmpty {
-                session.messages[session.messages.count - 1] = message
-                chatManager.currentSession = session
+    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
             }
-        }
-    }
-    
-    private func scrollToBottom(proxy: ScrollViewProxy) {
-        if let lastId = chatManager.currentSession?.messages.last?.id {
-            withAnimation {
-                proxy.scrollTo(lastId, anchor: .bottom)
-            }
+        } else {
+            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
         }
     }
 

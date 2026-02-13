@@ -66,6 +66,8 @@ struct FileExplorerView: View {
             }
             .navigationTitle("Brain")
             .listStyle(SidebarListStyle())
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
             .opacity(isOpaque ? 1.0 : 0.85)
             .onAppear {
                 items = fileSystem.getAllFilesRecursive()

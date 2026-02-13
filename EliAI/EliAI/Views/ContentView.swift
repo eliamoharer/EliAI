@@ -25,6 +25,17 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
+            LinearGradient(
+                colors: [
+                    Color.blue.opacity(0.20),
+                    Color.cyan.opacity(0.16),
+                    Color.white.opacity(0.12)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
             FileExplorerView(
                 fileSystem: fileSystem,
                 chatManager: chatManager,
@@ -39,9 +50,12 @@ struct ContentView: View {
             .ignoresSafeArea()
 
             GeometryReader { geometry in
-                let collapsedHeight: CGFloat = 110
+                let hiddenOffset = geometry.size.height + geometry.safeAreaInsets.bottom
+                let panelOffset = isChatVisible
+                    ? max(0, dragOffset)
+                    : hiddenOffset + min(0, dragOffset)
 
-                VStack(spacing: 0) {
+                ZStack(alignment: .bottom) {
                     ChatView(
                         chatManager: chatManager,
                         llmEngine: llmEngine,
@@ -50,63 +64,63 @@ struct ContentView: View {
                         onShowSettings: { showingSettings = true }
                     )
                     .frame(height: geometry.size.height)
-                    .background(Color.clear)
-                    .clipShape(RoundedRectangle(cornerRadius: isChatVisible ? 0 : 30, style: .continuous))
-                    .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: -5)
-                }
-                .frame(height: isChatVisible ? geometry.size.height : collapsedHeight, alignment: .top)
-                .offset(y: isChatVisible ? 0 : geometry.size.height - collapsedHeight)
-                .offset(y: dragOffset)
-                .clipped()
-                .zIndex(2)
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            let translation = value.translation.height
-                            let clamped = min(max(translation, -geometry.size.height * 0.9), geometry.size.height * 0.9)
-                            if isChatVisible {
-                                if clamped > 0 {
-                                    dragOffset = clamped
+                    .clipShape(RoundedRectangle(cornerRadius: isChatVisible ? 0 : 28, style: .continuous))
+                    .shadow(color: .black.opacity(0.16), radius: 22, x: 0, y: -5)
+                    .offset(y: panelOffset)
+                    .zIndex(2)
+                    .allowsHitTesting(isChatVisible)
+                    .gesture(
+                        DragGesture(minimumDistance: 8)
+                            .onChanged { value in
+                                guard isChatVisible else { return }
+                                if value.translation.height > 0 {
+                                    dragOffset = value.translation.height
                                     dismissKeyboard()
                                 }
-                            } else if clamped < 0 {
-                                dragOffset = clamped
                             }
-                        }
-                        .onEnded { value in
-                            let threshold = geometry.size.height * 0.2
-                            if isChatVisible {
-                                withAnimation(.spring()) {
-                                    isChatVisible = !(value.translation.height > threshold)
-                                }
+                            .onEnded { value in
+                                guard isChatVisible else { return }
+                                let threshold = geometry.size.height * 0.17
                                 if value.translation.height > threshold {
-                                    dismissKeyboard()
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                                        isChatVisible = false
+                                    }
                                 }
-                            } else {
-                                withAnimation(.spring()) {
-                                    isChatVisible = value.translation.height < -threshold
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                                    dragOffset = 0
                                 }
                             }
-                            withAnimation { dragOffset = 0 }
-                        }
-                )
-                .overlay(alignment: .top) {
+                    )
+
                     if !isChatVisible {
-                        VStack(spacing: 8) {
-                            Capsule()
-                                .fill(Color.primary.opacity(0.28))
-                                .frame(width: 46, height: 6)
-                            Text("Open Chat")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(.spring()) {
-                                isChatVisible = true
+                        collapsedHandle
+                            .padding(.bottom, max(8, geometry.safeAreaInsets.bottom))
+                            .offset(y: min(0, dragOffset))
+                            .zIndex(3)
+                            .gesture(
+                                DragGesture(minimumDistance: 6)
+                                    .onChanged { value in
+                                        if value.translation.height < 0 {
+                                            dragOffset = value.translation.height
+                                        }
+                                    }
+                                    .onEnded { value in
+                                        let threshold: CGFloat = 70
+                                        if value.translation.height < -threshold {
+                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                                                isChatVisible = true
+                                            }
+                                        }
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                                            dragOffset = 0
+                                        }
+                                    }
+                            )
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                                    isChatVisible = true
+                                }
                             }
-                        }
                     }
                 }
             }
@@ -187,5 +201,25 @@ struct ContentView: View {
 
     private func dismissKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    private var collapsedHandle: some View {
+        VStack(spacing: 8) {
+            Capsule()
+                .fill(Color.primary.opacity(0.30))
+                .frame(width: 48, height: 6)
+            Text("Open Chat")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.35), lineWidth: 0.8)
+        )
+        .padding(.horizontal, 16)
     }
 }

@@ -40,17 +40,6 @@ struct MessageBubble: View {
             }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {
-                if message.role == .tool {
-                    HStack {
-                        Image(systemName: "hammer.fill")
-                            .font(.caption2)
-                        Text("Tool Output")
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                    }
-                    .foregroundColor(.orange)
-                }
-
                 if message.role == .assistant, !parsed.thinking.isEmpty {
                     DisclosureGroup(isExpanded: $isThinkingVisible) {
                         Text(parsed.thinking)
@@ -66,8 +55,8 @@ struct MessageBubble: View {
                     }
                 }
 
-                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                    segmentView(segment)
+                if !visibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || message.role != .assistant {
+                    messageContent(segments: segments)
                 }
             }
 
@@ -79,28 +68,6 @@ struct MessageBubble: View {
                     .frame(width: 22, height: 22)
                     .foregroundColor(.gray)
             }
-        }
-    }
-
-    @ViewBuilder
-    private func segmentView(_ segment: MessageSegment) -> some View {
-        switch segment.kind {
-        case let .markdown(text):
-            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(attributedMessageText(from: text))
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .foregroundColor(message.role == .user ? .white : .primary)
-                    .background(bubbleBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.white.opacity(message.role == .user ? 0.22 : 0.25), lineWidth: 0.7)
-                    )
-            }
-        case let .math(latex, display):
-            MathSegmentView(latex: latex, display: display, role: message.role)
         }
     }
 
@@ -122,6 +89,49 @@ struct MessageBubble: View {
         case .tool:
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(Color.orange.opacity(0.18))
+        }
+    }
+
+    @ViewBuilder
+    private func messageContent(segments: [MessageSegment]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if message.role == .tool {
+                HStack(spacing: 6) {
+                    Image(systemName: "hammer.fill")
+                        .font(.caption2)
+                    Text("Tool Output")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                }
+                .foregroundColor(.orange)
+            }
+
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                segmentContent(segment)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .foregroundColor(message.role == .user ? .white : .primary)
+        .background(bubbleBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(message.role == .user ? 0.22 : 0.25), lineWidth: 0.7)
+        )
+    }
+
+    @ViewBuilder
+    private func segmentContent(_ segment: MessageSegment) -> some View {
+        switch segment.kind {
+        case let .markdown(text):
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(attributedMessageText(from: text))
+                    .textSelection(.enabled)
+            }
+        case let .math(latex, display):
+            MathSegmentView(latex: latex, display: display, role: message.role)
+                .padding(.vertical, display ? 4 : 1)
         }
     }
 
@@ -209,10 +219,10 @@ struct MessageBubble: View {
         }
 
         if segments.isEmpty {
-            return [MessageSegment(kind: .markdown(text))]
+            return promoteStandaloneLatex(in: [MessageSegment(kind: .markdown(text))])
         }
 
-        return mergeMarkdownSegments(segments)
+        return promoteStandaloneLatex(in: mergeMarkdownSegments(segments))
     }
 
     private func mergeMarkdownSegments(_ segments: [MessageSegment]) -> [MessageSegment] {
@@ -233,6 +243,65 @@ struct MessageBubble: View {
         }
 
         return merged
+    }
+
+    private func promoteStandaloneLatex(in segments: [MessageSegment]) -> [MessageSegment] {
+        var promoted: [MessageSegment] = []
+
+        for segment in segments {
+            switch segment.kind {
+            case .math:
+                promoted.append(segment)
+            case let .markdown(text):
+                promoted.append(contentsOf: splitMarkdownIntoLatexAwareSegments(text))
+            }
+        }
+
+        return mergeMarkdownSegments(promoted)
+    }
+
+    private func splitMarkdownIntoLatexAwareSegments(_ text: String) -> [MessageSegment] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        var result: [MessageSegment] = []
+
+        for (index, rawLine) in lines.enumerated() {
+            let line = String(rawLine)
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if looksLikeStandaloneLatex(trimmed) {
+                result.append(MessageSegment(kind: .math(trimmed, display: true)))
+            } else {
+                var restored = line
+                if index < lines.count - 1 {
+                    restored.append("\n")
+                }
+                if !restored.isEmpty {
+                    result.append(MessageSegment(kind: .markdown(restored)))
+                }
+            }
+        }
+
+        return result
+    }
+
+    private func looksLikeStandaloneLatex(_ line: String) -> Bool {
+        guard !line.isEmpty else { return false }
+        let latexHints = [
+            "\\frac", "\\sqrt", "\\sum", "\\int", "\\prod", "\\begin", "\\end", "\\left", "\\right",
+            "\\alpha", "\\beta", "\\gamma", "\\delta", "\\theta", "\\lambda", "\\mu", "\\pi",
+            "\\sigma", "\\phi", "\\omega", "\\Delta", "\\boxed"
+        ]
+
+        let hasLatexCommand = latexHints.contains { line.contains($0) } || line.contains("\\")
+        let hasMathStructure = line.contains("=") || line.contains("^") || line.contains("_")
+
+        if !hasLatexCommand {
+            return false
+        }
+
+        // Avoid converting normal prose that only happens to include a backslash.
+        let words = line.split(whereSeparator: { $0.isWhitespace }).count
+        return hasMathStructure || words <= 8
     }
 
     private func nextMathStart(
@@ -331,44 +400,31 @@ private struct MathSegmentView: View {
     let role: ChatMessage.Role
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if display {
-                Text("Math")
-                    .font(.caption2)
-                    .foregroundColor(role == .user ? .white.opacity(0.85) : .secondary)
-            }
-
-            LaTeXMathLabel(
-                equation: latex,
-                font: .latinModernFont,
-                textAlignment: .left,
-                fontSize: display ? 23 : 20,
-                labelMode: display ? .display : .text,
-                textColor: role == .user ? UIColor.white : UIColor.label
+        let mathLabel = LaTeXMathLabel(
+            equation: latex,
+            font: .latinModernFont,
+            textAlignment: .left,
+            fontSize: display ? 23 : 20,
+            labelMode: display ? .display : .text,
+            textColor: role == .user ? UIColor.white : UIColor.label,
+            insets: MTEdgeInsets(
+                top: display ? 4 : 1,
+                left: 0,
+                bottom: display ? 4 : 1,
+                right: 0
             )
-            .frame(minHeight: display ? 40 : 28)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(background)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(role == .user ? 0.22 : 0.25), lineWidth: 0.7)
         )
-    }
 
-    @ViewBuilder
-    private var background: some View {
-        if role == .user {
-            LinearGradient(
-                colors: [Color.blue.opacity(0.94), Color.blue.opacity(0.76)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+        if display {
+            ScrollView(.horizontal, showsIndicators: false) {
+                mathLabel
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(.vertical, 2)
+            }
+            .frame(minHeight: 44)
         } else {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.thinMaterial)
+            mathLabel
+                .frame(minHeight: 30)
         }
     }
 }
@@ -408,7 +464,8 @@ private struct LaTeXMathLabel: UIViewRepresentable {
             measuringBounds.size.width = width
             uiView.bounds = measuringBounds
             let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-            return CGSize(width: min(width, size.width), height: max(24, size.height))
+            let minHeight: CGFloat = labelMode == .display ? 34 : 24
+            return CGSize(width: width, height: max(minHeight, size.height))
         }
         return nil
     }

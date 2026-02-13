@@ -70,6 +70,35 @@ class ChatManager {
         AppLogger.debug("Message appended role=\(message.role.rawValue)", category: .app)
     }
 
+    func updateLastMessage(_ message: ChatMessage, persist: Bool = true) {
+        guard var session = currentSession, !session.messages.isEmpty else { return }
+        session.messages[session.messages.count - 1] = message
+        session.updatedAt = Date()
+        currentSession = session
+
+        if let index = sessions.firstIndex(where: { $0.id == session.id }) {
+            sessions[index] = session
+        }
+
+        if persist {
+            saveSession(session)
+        }
+    }
+
+    func removeMessage(id: UUID) {
+        guard var session = currentSession else { return }
+        let originalCount = session.messages.count
+        session.messages.removeAll { $0.id == id }
+        guard session.messages.count != originalCount else { return }
+
+        session.updatedAt = Date()
+        currentSession = session
+        if let index = sessions.firstIndex(where: { $0.id == session.id }) {
+            sessions[index] = session
+        }
+        saveSession(session)
+    }
+
     func clearCurrentSession() {
         guard var session = currentSession else { return }
         session.messages.removeAll()
