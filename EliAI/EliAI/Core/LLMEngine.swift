@@ -67,6 +67,8 @@ class LLMEngine {
             }.value
 
             applySamplingPreset(validation.profile.sampling, to: loadedLLM)
+            loadedLLM.preprocess = { $0 }
+            loadedLLM.postprocess = { _ in }
 
             llm = loadedLLM
             modelPath = modelURL.path
@@ -107,7 +109,6 @@ class LLMEngine {
         let (stream, continuation) = AsyncStream<String>.makeStream()
 
         generationTask = Task(priority: .userInitiated) { [weak self] in
-            var emittedText = ""
             defer {
                 Task { @MainActor [weak self] in
                     self?.isGenerating = false
@@ -120,42 +121,22 @@ class LLMEngine {
                 return
             }
 
-            let sanitize: (String) -> String = { text in
-                text.replacingOccurrences(of: "<|im_end|>", with: "")
-            }
-
-            let finalOutput = await llm.getCompletion(from: prompt, stopSequence: "<|im_end|>") { partial in
+            llm.update = { outputDelta in
                 if Task.isCancelled {
-                    return false
+                    return
                 }
 
-                let cleanedPartial = sanitize(partial)
-                guard cleanedPartial.hasPrefix(emittedText) else {
-                    return true
+                guard let outputDelta else { return }
+                let cleaned = outputDelta.replacingOccurrences(of: "<|im_end|>", with: "")
+                if !cleaned.isEmpty {
+                    continuation.yield(cleaned)
                 }
-
-                let delta = String(cleanedPartial.dropFirst(emittedText.count))
-                if !delta.isEmpty {
-                    continuation.yield(delta)
-                    emittedText = cleanedPartial
-                }
-                return true
             }
+            await llm.respond(to: prompt)
+            llm.update = { _ in }
 
             if Task.isCancelled {
                 return
-            }
-
-            if let finalOutput {
-                let cleanedFinal = sanitize(finalOutput)
-                if cleanedFinal.hasPrefix(emittedText) {
-                    let tail = String(cleanedFinal.dropFirst(emittedText.count))
-                    if !tail.isEmpty {
-                        continuation.yield(tail)
-                    }
-                } else if emittedText.isEmpty && !cleanedFinal.isEmpty {
-                    continuation.yield(cleanedFinal)
-                }
             }
         }
 
