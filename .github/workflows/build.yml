@@ -66,8 +66,43 @@ jobs:
           echo "No installed Xcode with iphoneos SDK found."
           exit 1
 
+      - name: Capture Xcode Build Info
+        id: xcode_info
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "xcode_version=$(xcodebuild -version | awk 'NR==1 {print $2}')" >> "$GITHUB_OUTPUT"
+          echo "xcode_build=$(xcodebuild -version | awk 'NR==2 {print $3}')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore SwiftPM Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .spm
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-${{ steps.xcode_info.outputs.xcode_build }}-spm-${{ hashFiles('project.yml', 'Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-${{ steps.xcode_info.outputs.xcode_build }}-spm-
+
+      - name: Restore DerivedData Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/Build/Intermediates.noindex
+            build/ModuleCache.noindex
+          key: ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-${{ steps.xcode_info.outputs.xcode_build }}-derived-${{ hashFiles('project.yml', 'Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-${{ steps.xcode_info.outputs.xcode_build }}-derived-
+
       - name: Install XcodeGen
-        run: brew install xcodegen
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen version
+          else
+            brew install xcodegen
+          fi
 
       - name: Generate Xcode Project
         run: xcodegen generate
@@ -90,6 +125,7 @@ jobs:
             -configuration Release \
             -derivedDataPath build \
             -clonedSourcePackagesDirPath .spm \
+            -disableAutomaticPackageResolution \
             -skipPackagePluginValidation \
             -skipMacroValidation \
             CODE_SIGN_IDENTITY="" \

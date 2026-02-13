@@ -25,8 +25,7 @@ let package = Package(
                 .product(name: "LLM", package: "LLM")
             ],
             swiftSettings: [
-                .interoperabilityMode(.Cxx),
-                .enableExperimentalFeature("Macros")
+                .interoperabilityMode(.Cxx)
             ])
     ]
 )

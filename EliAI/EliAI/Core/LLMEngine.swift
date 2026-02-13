@@ -67,8 +67,11 @@ class LLMEngine {
             }.value
 
             applySamplingPreset(validation.profile.sampling, to: loadedLLM)
-            loadedLLM.preprocess = { $0 }
-            loadedLLM.postprocess = { _ in }
+            loadedLLM.preprocess = { (input: String, history) -> String in
+                _ = history
+                return input
+            }
+            loadedLLM.postprocess = { (_: String?) in }
 
             llm = loadedLLM
             modelPath = modelURL.path
@@ -121,7 +124,7 @@ class LLMEngine {
                 return
             }
 
-            llm.update = { outputDelta in
+            llm.update = { (outputDelta: String?) in
                 if Task.isCancelled {
                     return
                 }
@@ -133,7 +136,7 @@ class LLMEngine {
                 }
             }
             await llm.respond(to: prompt)
-            llm.update = { _ in }
+            llm.update = { (_: String?) in }
 
             if Task.isCancelled {
                 return

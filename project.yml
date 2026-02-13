@@ -21,7 +21,6 @@ targets:
       SWIFT_COMPILATION_MODE: wholemodule
       OTHER_SWIFT_FLAGS:
         - -cxx-interoperability-mode=default
-        - -enable-experimental-feature Macros
     dependencies:
       - package: LLM
         product: LLM
