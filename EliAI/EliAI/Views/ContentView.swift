@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct ContentView: View {
-    @State private var isChatVisible = false
+    @State private var isChatVisible = true
     @State private var dragOffset: CGFloat = 0
     @State private var didAttemptFallbackModel = false
 
@@ -29,13 +29,13 @@ struct ContentView: View {
                 fileSystem: fileSystem,
                 chatManager: chatManager,
                 modelDownloader: modelDownloader,
-                isOpaque: true,
+                isOpaque: false,
                 onSelectFile: { _ in },
                 showingSettings: $showingSettings,
                 showingNewChatDialog: $showingNewChatDialog
             )
-            .opacity(isChatVisible ? 0 : 1.0)
-            .animation(.easeInOut, value: isChatVisible)
+            .opacity(1.0)
+            .allowsHitTesting(!isChatVisible)
             .ignoresSafeArea()
 
             GeometryReader { geometry in
@@ -50,7 +50,7 @@ struct ContentView: View {
                         onShowSettings: { showingSettings = true }
                     )
                     .frame(height: geometry.size.height)
-                    .background(.ultraThinMaterial)
+                    .background(Color.clear)
                     .clipShape(RoundedRectangle(cornerRadius: isChatVisible ? 0 : 30, style: .continuous))
                     .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: -5)
                 }
@@ -103,6 +103,11 @@ struct ContentView: View {
             .padding(.bottom, 0)
         }
         .onAppear {
+            UserDefaults.standard.register(defaults: ["responseStyle": "auto"])
+            if chatManager.currentSession == nil {
+                chatManager.createNewSession()
+            }
+
             if ProcessInfo.processInfo.arguments.contains("-disableAutoModelLoad") {
                 AppLogger.info("Auto model load disabled by launch argument.", category: .ui)
                 return

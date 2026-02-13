@@ -84,16 +84,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-${{ steps.xcode_info.outputs.xcode_build }}-spm-
 
-      - name: Restore DerivedData Cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            build/Build/Intermediates.noindex
-            build/ModuleCache.noindex
-          key: ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-${{ steps.xcode_info.outputs.xcode_build }}-derived-${{ hashFiles('project.yml', 'Package.swift') }}
-          restore-keys: |
-            ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-${{ steps.xcode_info.outputs.xcode_build }}-derived-
-
       - name: Install XcodeGen
         shell: bash
         run: |
@@ -128,6 +118,8 @@ jobs:
             -disableAutomaticPackageResolution \
             -skipPackagePluginValidation \
             -skipMacroValidation \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            SWIFT_COMPILATION_MODE=incremental \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO | tee xcodebuild.log

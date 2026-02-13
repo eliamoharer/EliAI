@@ -27,11 +27,18 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
             urlString: "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf"
         ),
         RemoteModel(
-            id: "lfm2.5-7b-q4km",
-            displayName: "LFM 2.5 7B (Q4_K_M)",
-            fileName: "LFM2.5-7B-Q4_K_M.gguf",
+            id: "lfm2.5-1.2b-thinking-q4km",
+            displayName: "LFM 2.5 1.2B Thinking (Q4_K_M)",
+            fileName: "LFM2.5-1.2B-Thinking-Q4_K_M.gguf",
             profile: .lfm25,
-            urlString: "https://huggingface.co/LiquidAI/LFM2.5-7B-GGUF/resolve/main/LFM2.5-7B-Q4_K_M.gguf"
+            urlString: "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Thinking-GGUF/resolve/main/LFM2.5-1.2B-Thinking-Q4_K_M.gguf"
+        ),
+        RemoteModel(
+            id: "lfm2.5-1.2b-instruct-q4km",
+            displayName: "LFM 2.5 1.2B Instruct (Q4_K_M)",
+            fileName: "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
+            profile: .lfm25,
+            urlString: "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
         )
     ]
 

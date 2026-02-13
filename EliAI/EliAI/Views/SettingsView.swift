@@ -52,13 +52,13 @@ struct SettingsView: View {
                     Picker(
                         "Assistant Mode",
                         selection: Binding(
-                            get: { UserDefaults.standard.string(forKey: responseStyleKey) ?? "thinking" },
+                            get: { UserDefaults.standard.string(forKey: responseStyleKey) ?? "auto" },
                             set: { UserDefaults.standard.set($0, forKey: responseStyleKey) }
                         )
                     ) {
+                        Text("Auto").tag("auto")
                         Text("Thinking").tag("thinking")
                         Text("Instruct").tag("instruct")
-                        Text("Auto").tag("auto")
                     }
                 }
 

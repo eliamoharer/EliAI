@@ -80,7 +80,7 @@ struct FileDetailView: View {
     private func saveFile() {
         do {
             try content.write(to: fileItem.path, atomically: true, encoding: .utf8)
-            chatSessionPreview = nil
+            loadFile()
         } catch {
             print("Error saving file: \(error.localizedDescription)")
         }

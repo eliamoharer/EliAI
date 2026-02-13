@@ -40,7 +40,7 @@ struct FileExplorerView: View {
                                         HStack(spacing: 4) {
                                             Text("\(session.messages.count) messages")
                                             Text("-")
-                                            Text(session.updatedAt, style: .relative)
+                                            Text(session.updatedAt, format: .dateTime.month(.abbreviated).day().hour().minute())
                                         }
                                         .font(.caption2)
                                         .foregroundColor(.secondary)

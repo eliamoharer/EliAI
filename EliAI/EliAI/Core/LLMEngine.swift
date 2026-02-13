@@ -67,11 +67,10 @@ class LLMEngine {
             }.value
 
             applySamplingPreset(validation.profile.sampling, to: loadedLLM)
-            loadedLLM.preprocess = { (input: String, history) -> String in
-                _ = history
+            loadedLLM.preprocess = { input, _ in
                 return input
             }
-            loadedLLM.postprocess = { (_: String?) in }
+            loadedLLM.postprocess = { _ in }
 
             llm = loadedLLM
             modelPath = modelURL.path
@@ -124,7 +123,8 @@ class LLMEngine {
                 return
             }
 
-            llm.update = { (outputDelta: String?) in
+            llm.history.removeAll(keepingCapacity: true)
+            llm.update = { outputDelta in
                 if Task.isCancelled {
                     return
                 }
@@ -136,7 +136,7 @@ class LLMEngine {
                 }
             }
             await llm.respond(to: prompt)
-            llm.update = { (_: String?) in }
+            llm.update = { _ in }
 
             if Task.isCancelled {
                 return
@@ -191,12 +191,29 @@ class LLMEngine {
             return override
         }
 
-        let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "thinking"
+        let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
         switch style {
         case "instruct":
             return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
         case "thinking":
             return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+        case "auto":
+            if let modelPath {
+                let lower = modelPath.lowercased()
+                if lower.contains("thinking") {
+                    return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+                }
+                if lower.contains("instruct") {
+                    return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+                }
+            }
+
+            switch activeProfile {
+            case .qwen3:
+                return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+            case .lfm25, .generic:
+                return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+            }
         default:
             return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
         }
