@@ -5,329 +5,26 @@ struct ChatView: View {
     var chatManager: ChatManager
     var llmEngine: LLMEngine
     var agentManager: AgentManager
-    // Pass modelDownloader to observe progress
     var modelDownloader: ModelDownloader
     var onShowSettings: () -> Void = {}
-    
-    @State private var inputText: String = ""
+
+    @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
     @State private var showFileImporter = false
     private let bottomAnchorID = "chatBottomAnchor"
-    
+
+    private var currentMessages: [ChatMessage] {
+        chatManager.currentSession?.messages ?? []
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            Capsule()
-                .fill(Color.primary.opacity(0.22))
-                .frame(width: 42, height: 5)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
-
-            // Header
-            HStack {
-                Text(chatManager.currentSession?.title ?? "EliAI")
-                    .font(.headline)
-                    .fontWeight(.bold)
-                Spacer()
-                
-                if modelDownloader.isDownloading {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        ProgressView(value: modelDownloader.downloadProgress)
-                            .progressViewStyle(LinearProgressViewStyle())
-                            .frame(width: 100)
-                        Text(modelDownloader.log)
-                            .font(.caption2)
-                            .foregroundColor(.gray)
-                    }
-                } else if llmEngine.isLoadingModel {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .scaleEffect(0.75)
-                        Text("Loading Model")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    }
-                } else if llmEngine.isLoaded {
-                    Menu {
-                        Section("Active Model") {
-                            ForEach(modelDownloader.availableModels, id: \.self) { model in
-                                Button {
-                                    modelDownloader.activeModelName = model
-                                } label: {
-                                    HStack {
-                                        Text(model)
-                                        if model == modelDownloader.activeModelName {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        Section {
-                            Button(action: { showFileImporter = true }) {
-                                Label("Import New (.gguf)...", systemImage: "folder.badge.plus")
-                            }
-
-                            Button {
-                                onShowSettings()
-                            } label: {
-                                Label("Settings", systemImage: "gear")
-                            }
-
-                            Button {
-                                llmEngine.stopGeneration()
-                                chatManager.createNewSession()
-                            } label: {
-                                Label("New Chat", systemImage: "plus.message")
-                            }
-
-                            Button(role: .destructive) {
-                                llmEngine.stopGeneration()
-                                chatManager.clearCurrentSession()
-                            } label: {
-                                Label("Clear Current Chat", systemImage: "trash")
-                            }
-                            
-                            Button(role: .destructive) {
-                                withAnimation {
-                                    llmEngine.unloadModel()
-                                }
-                            } label: {
-                                Label("Unload Engine", systemImage: "power")
-                            }
-                        }
-
-                        if !llmEngine.modelWarnings.isEmpty {
-                            Section("Model Warnings") {
-                                ForEach(llmEngine.modelWarnings, id: \.self) { warning in
-                                    Text(warning)
-                                }
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Circle().fill(llmEngine.isGenerating ? Color.orange : Color.green).frame(width: 8, height: 8)
-                            Text(llmEngine.isGenerating ? "Processing" : "Ready")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8))
-                                .foregroundColor(.gray)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background {
-                            liquidRoundedBackground(cornerRadius: 12)
-                        }
-                        .cornerRadius(12)
-                    }
-                    .disabled(llmEngine.isGenerating)
-                } else {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        if modelDownloader.error != nil {
-                            Text(modelDownloader.log)
-                                .font(.caption2)
-                                .foregroundColor(.red)
-                        }
-                        
-                        HStack(spacing: 8) {
-                            Button(action: {
-                                showFileImporter = true
-                            }) {
-                                Image(systemName: "folder.badge.plus")
-                                    .font(.system(size: 16))
-                            }
-                            
-                            Menu {
-                                ForEach(modelDownloader.remoteCatalog) { remoteModel in
-                                    Button {
-                                        modelDownloader.selectedRemoteModelID = remoteModel.id
-                                        modelDownloader.downloadModel()
-                                    } label: {
-                                        Label("Download \(remoteModel.displayName)", systemImage: "arrow.down.circle")
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "arrow.down.circle")
-                                    Text("Download")
-                                }
-                                .font(.caption)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background {
-                                    liquidRoundedBackground(cornerRadius: 12)
-                                }
-                                .cornerRadius(12)
-                            }
-                        }
-
-                        Text("Selected: \(modelDownloader.selectedRemoteModel.displayName)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-            .padding()
-             
-            // Messages List
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 16) {
-                        // Introduction / Empty State / Loading State
-                        if (chatManager.currentSession?.messages.isEmpty ?? true) {
-                            VStack(spacing: 16) {
-                                Text("EliAI")
-                                    .font(.largeTitle)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.blue.opacity(0.5))
-                                    .padding(.top, 40)
-                                    
-                                if modelDownloader.isDownloading {
-                                    VStack(spacing: 8) {
-                                        ProgressView()
-                                        Text(modelDownloader.log)
-                                            .font(.caption)
-                                            .foregroundColor(.gray)
-                                            .multilineTextAlignment(.center)
-                                            .padding(.horizontal)
-                                    }
-                                } else if !llmEngine.isLoaded {
-                                     Text("No model loaded.")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                     
-                                     if !modelDownloader.availableModels.isEmpty {
-                                         Menu {
-                                             ForEach(modelDownloader.availableModels, id: \.self) { model in
-                                                 Button(model) {
-                                                     modelDownloader.activeModelName = model
-                                                 }
-                                             }
-                                         } label: {
-                                             Label("Select from Library (\(modelDownloader.availableModels.count))", systemImage: "books.vertical")
-                                                 .font(.caption)
-                                                 .foregroundColor(.blue)
-                                                 .padding(.top, 4)
-                                         }
-                                     }
-                                     
-                                     Text("Download or import a .gguf model to start.")
-                                        .font(.caption2)
-                                        .foregroundColor(.gray.opacity(0.8))
-                                        .padding(.top, 2)
-                                } else {
-                                    Text("How can I help you today?")
-                                        .font(.title3)
-                                        .fontWeight(.medium)
-                                        .foregroundColor(.gray)
-                                }
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 40)
-                        }
-                        
-                        ForEach(chatManager.currentSession?.messages ?? []) { message in
-                            MessageBubble(message: message)
-                                .id(message.id)
-                        }
-                        
-                        if llmEngine.isGenerating {
-                            HStack {
-                                ProgressView()
-                                    .padding(.trailing, 4)
-                                Text("Thinking...")
-                                    .font(.caption)
-                                    .foregroundColor(.gray)
-                                Spacer()
-                            }
-                            .padding(.horizontal)
-                        }
-
-                        Color.clear
-                            .frame(height: 1)
-                            .id(bottomAnchorID)
-                    }
-                    .padding()
-                }
-                .id(chatManager.currentSession?.id)
-                .scrollDismissesKeyboard(.interactively)
-                .onTapGesture {
-                    isInputFocused = false
-                }
-                .onChange(of: chatManager.currentSession?.messages.count) { _, _ in
-                    scrollToBottom(proxy: proxy)
-                }
-                .onChange(of: llmEngine.isGenerating) { _, isGenerating in
-                    if isGenerating { scrollToBottom(proxy: proxy) }
-                }
-                .onChange(of: chatManager.currentSession?.messages.last?.id) { _, _ in
-                    scrollToBottom(proxy: proxy)
-                }
-                .onChange(of: chatManager.currentSession?.messages.last?.content) { _, _ in
-                    if llmEngine.isGenerating {
-                        scrollToBottom(proxy: proxy, animated: false)
-                    }
-                }
-                .onChange(of: chatManager.currentSession?.id) { _, _ in
-                    scrollToBottom(proxy: proxy)
-                }
-            }
-
-            // Input Area
-            VStack(spacing: 0) {
-                Divider()
-                    .overlay(Color.white.opacity(0.25))
-                HStack(alignment: .bottom) {
-                    TextField("Message...", text: $inputText, axis: .vertical)
-                        .focused($isInputFocused)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background {
-                            liquidRoundedBackground(cornerRadius: 22)
-                        }
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .stroke(Color.white.opacity(0.35), lineWidth: 0.8)
-                        )
-                        .lineLimit(1...5)
-                        .disabled(!llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel)
-                    
-                    Button(action: sendMessage) {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.blue.opacity(inputText.isEmpty ? 0.4 : 1.0))
-                    }
-                    .padding(5)
-                    .background {
-                        liquidCircleBackground()
-                    }
-                    .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 0.8))
-                    .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
-                    .disabled(inputText.isEmpty || !llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel)
-                }
-                .padding(.horizontal)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
-            }
-            .background(
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .overlay(Color.white.opacity(0.04))
-            )
+            topGrabber
+            headerSection
+            messagesSection
+            inputSection
         }
-        .background(
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    Color.white.opacity(0.05)
-                )
-                .overlay(
-                    Rectangle()
-                        .stroke(Color.white.opacity(0.20), lineWidth: 0.6)
-                )
-                .ignoresSafeArea()
-        )
+        .background(chatPanelBackground)
         .fileImporter(
             isPresented: $showFileImporter,
             allowedContentTypes: [UTType(filenameExtension: "gguf") ?? .data],
@@ -344,55 +41,392 @@ struct ChatView: View {
             }
         }
     }
-    
+
+    private var topGrabber: some View {
+        Capsule()
+            .fill(Color.primary.opacity(0.22))
+            .frame(width: 42, height: 5)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+    }
+
+    private var headerSection: some View {
+        HStack {
+            Text(chatManager.currentSession?.title ?? "EliAI")
+                .font(.headline)
+                .fontWeight(.bold)
+            Spacer()
+            headerTrailing
+        }
+        .padding()
+    }
+
+    @ViewBuilder
+    private var headerTrailing: some View {
+        if modelDownloader.isDownloading {
+            downloadingStatus
+        } else if llmEngine.isLoadingModel {
+            loadingStatus
+        } else if llmEngine.isLoaded {
+            loadedModelMenu
+        } else {
+            unloadedModelControls
+        }
+    }
+
+    private var downloadingStatus: some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            ProgressView(value: modelDownloader.downloadProgress)
+                .progressViewStyle(.linear)
+                .frame(width: 100)
+            Text(modelDownloader.log)
+                .font(.caption2)
+                .foregroundColor(.gray)
+        }
+    }
+
+    private var loadingStatus: some View {
+        HStack(spacing: 6) {
+            ProgressView()
+                .scaleEffect(0.75)
+            Text("Loading Model")
+                .font(.caption)
+                .foregroundColor(.orange)
+        }
+    }
+
+    private var loadedModelMenu: some View {
+        Menu {
+            loadedModelMenuContent
+        } label: {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(llmEngine.isGenerating ? Color.orange : Color.green)
+                    .frame(width: 8, height: 8)
+                Text(llmEngine.isGenerating ? "Processing" : "Ready")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8))
+                    .foregroundColor(.gray)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background {
+                liquidRoundedBackground(cornerRadius: 12)
+            }
+            .cornerRadius(12)
+        }
+        .disabled(llmEngine.isGenerating)
+    }
+
+    @ViewBuilder
+    private var loadedModelMenuContent: some View {
+        Section("Active Model") {
+            ForEach(modelDownloader.availableModels, id: \.self) { model in
+                Button {
+                    modelDownloader.activeModelName = model
+                } label: {
+                    HStack {
+                        Text(model)
+                        if model == modelDownloader.activeModelName {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        }
+
+        Section {
+            Button(action: { showFileImporter = true }) {
+                Label("Import New (.gguf)...", systemImage: "folder.badge.plus")
+            }
+
+            Button(action: onShowSettings) {
+                Label("Settings", systemImage: "gear")
+            }
+
+            Button {
+                llmEngine.stopGeneration()
+                chatManager.createNewSession()
+            } label: {
+                Label("New Chat", systemImage: "plus.message")
+            }
+
+            Button(role: .destructive) {
+                llmEngine.stopGeneration()
+                chatManager.clearCurrentSession()
+            } label: {
+                Label("Clear Current Chat", systemImage: "trash")
+            }
+
+            Button(role: .destructive) {
+                withAnimation {
+                    llmEngine.unloadModel()
+                }
+            } label: {
+                Label("Unload Engine", systemImage: "power")
+            }
+        }
+
+        if !llmEngine.modelWarnings.isEmpty {
+            Section("Model Warnings") {
+                ForEach(llmEngine.modelWarnings, id: \.self) { warning in
+                    Text(warning)
+                }
+            }
+        }
+    }
+
+    private var unloadedModelControls: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            if modelDownloader.error != nil {
+                Text(modelDownloader.log)
+                    .font(.caption2)
+                    .foregroundColor(.red)
+            }
+
+            HStack(spacing: 8) {
+                Button(action: { showFileImporter = true }) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 16))
+                }
+
+                Menu {
+                    ForEach(modelDownloader.remoteCatalog) { remoteModel in
+                        Button {
+                            modelDownloader.selectedRemoteModelID = remoteModel.id
+                            modelDownloader.downloadModel()
+                        } label: {
+                            Label("Download \(remoteModel.displayName)", systemImage: "arrow.down.circle")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.down.circle")
+                        Text("Download")
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background {
+                        liquidRoundedBackground(cornerRadius: 12)
+                    }
+                    .cornerRadius(12)
+                }
+            }
+
+            Text("Selected: \(modelDownloader.selectedRemoteModel.displayName)")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var messagesSection: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 16) {
+                    if currentMessages.isEmpty {
+                        emptyStateView
+                    }
+
+                    ForEach(currentMessages) { message in
+                        MessageBubble(message: message)
+                            .id(message.id)
+                    }
+
+                    if llmEngine.isGenerating {
+                        HStack {
+                            ProgressView()
+                                .padding(.trailing, 4)
+                            Text("Thinking...")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            Spacer()
+                        }
+                        .padding(.horizontal)
+                    }
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id(bottomAnchorID)
+                }
+                .padding()
+            }
+            .id(chatManager.currentSession?.id)
+            .scrollDismissesKeyboard(.interactively)
+            .onTapGesture {
+                isInputFocused = false
+            }
+            .onChange(of: chatManager.currentSession?.messages.count) { _, _ in
+                scrollToBottom(proxy: proxy)
+            }
+            .onChange(of: llmEngine.isGenerating) { _, isGenerating in
+                if isGenerating {
+                    scrollToBottom(proxy: proxy)
+                }
+            }
+            .onChange(of: chatManager.currentSession?.messages.last?.id) { _, _ in
+                scrollToBottom(proxy: proxy)
+            }
+            .onChange(of: chatManager.currentSession?.messages.last?.content) { _, _ in
+                if llmEngine.isGenerating {
+                    scrollToBottom(proxy: proxy, animated: false)
+                }
+            }
+            .onChange(of: chatManager.currentSession?.id) { _, _ in
+                scrollToBottom(proxy: proxy)
+            }
+        }
+    }
+
+    private var emptyStateView: some View {
+        VStack(spacing: 16) {
+            Text("EliAI")
+                .font(.largeTitle)
+                .fontWeight(.bold)
+                .foregroundColor(.blue.opacity(0.5))
+                .padding(.top, 40)
+
+            if modelDownloader.isDownloading {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text(modelDownloader.log)
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+            } else if !llmEngine.isLoaded {
+                Text("No model loaded.")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+
+                if !modelDownloader.availableModels.isEmpty {
+                    Menu {
+                        ForEach(modelDownloader.availableModels, id: \.self) { model in
+                            Button(model) {
+                                modelDownloader.activeModelName = model
+                            }
+                        }
+                    } label: {
+                        Label("Select from Library (\(modelDownloader.availableModels.count))", systemImage: "books.vertical")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                            .padding(.top, 4)
+                    }
+                }
+
+                Text("Download or import a .gguf model to start.")
+                    .font(.caption2)
+                    .foregroundColor(.gray.opacity(0.8))
+                    .padding(.top, 2)
+            } else {
+                Text("How can I help you today?")
+                    .font(.title3)
+                    .fontWeight(.medium)
+                    .foregroundColor(.gray)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 40)
+    }
+
+    private var inputSection: some View {
+        VStack(spacing: 0) {
+            Divider()
+                .overlay(Color.white.opacity(0.25))
+            HStack(alignment: .bottom) {
+                TextField("Message...", text: $inputText, axis: .vertical)
+                    .focused($isInputFocused)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background {
+                        liquidRoundedBackground(cornerRadius: 22)
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .stroke(Color.white.opacity(0.35), lineWidth: 0.8)
+                    )
+                    .lineLimit(1 ... 5)
+                    .disabled(!llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel)
+
+                Button(action: sendMessage) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(.blue.opacity(inputText.isEmpty ? 0.4 : 1.0))
+                }
+                .padding(5)
+                .background {
+                    liquidCircleBackground()
+                }
+                .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 0.8))
+                .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+                .disabled(inputText.isEmpty || !llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel)
+            }
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+        }
+        .background(
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(Color.white.opacity(0.04))
+        )
+    }
+
+    private var chatPanelBackground: some View {
+        Rectangle()
+            .fill(.ultraThinMaterial)
+            .overlay(Color.white.opacity(0.05))
+            .overlay(
+                Rectangle()
+                    .stroke(Color.white.opacity(0.20), lineWidth: 0.6)
+            )
+            .ignoresSafeArea()
+    }
+
     private func sendMessage() {
         guard !inputText.isEmpty else { return }
         AppLogger.debug("User message submitted.", category: .ui)
-        
-        // Ensure a session exists
+
         if chatManager.currentSession == nil {
             chatManager.createNewSession()
         }
-        
-        // 1. User Message
+
         let userMessage = ChatMessage(role: .user, content: inputText)
         chatManager.addMessage(userMessage)
         inputText = ""
-        
-        // Start Agent Loop
+
         Task {
             await runAgentLoop()
         }
     }
-    
+
     private func runAgentLoop() async {
         var keepGenerating = true
         var steps = 0
         let maxSteps = 4
-        
+
         while keepGenerating && steps < maxSteps {
             steps += 1
-            keepGenerating = false // Default to stop unless tool triggers continuation
-            
-            // 2. Assistant Generation
+            keepGenerating = false
+
             var fullResponse = ""
             var assistantMessage = ChatMessage(role: .assistant, content: "")
-            chatManager.addMessage(assistantMessage) // Add placeholder
-            
-            // Generate using FULL history
-            let history = chatManager.currentSession?.messages.dropLast() // Exclude the placeholder we just added
+            chatManager.addMessage(assistantMessage)
+
+            let history = chatManager.currentSession?.messages.dropLast()
             let stream = llmEngine.generate(messages: Array(history ?? []))
-            
+
             for await token in stream {
                 fullResponse += token
-
                 await MainActor.run {
                     assistantMessage.content = fullResponse
                     chatManager.updateLastMessage(assistantMessage, persist: false)
                 }
             }
 
-            // Final update
             await MainActor.run {
                 assistantMessage.content = fullResponse
                 chatManager.updateLastMessage(assistantMessage)
@@ -400,17 +434,13 @@ struct ChatView: View {
                     chatManager.removeMessage(id: assistantMessage.id)
                 }
             }
-            
-            // 3. Tool Check (Agentic behavior)
+
             if let toolOutput = await agentManager.processToolCalls(in: fullResponse) {
-                // Add tool output to history
                 let toolMessage = ChatMessage(role: .tool, content: toolOutput)
                 chatManager.addMessage(toolMessage)
-                
-                // Loop continues to let the model interpret the tool output
                 keepGenerating = true
             }
-            
+
             if let session = chatManager.currentSession {
                 chatManager.saveSession(session)
             }
@@ -424,7 +454,7 @@ struct ChatView: View {
             chatManager.addMessage(warning)
         }
     }
-    
+
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
         if animated {
             withAnimation(.easeOut(duration: 0.2)) {

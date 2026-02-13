@@ -88,9 +88,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build
-          key: ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-deriveddata-${{ hashFiles('project.yml', 'Package.swift') }}
+          key: ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-${{ steps.xcode_info.outputs.xcode_build }}-deriveddata-${{ hashFiles('project.yml', 'Package.swift') }}
           restore-keys: |
-            ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-deriveddata-
+            ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-${{ steps.xcode_info.outputs.xcode_build }}-deriveddata-
 
       - name: Install XcodeGen
         shell: bash
@@ -124,10 +124,14 @@ jobs:
             -derivedDataPath build \
             -clonedSourcePackagesDirPath .spm \
             -disableAutomaticPackageResolution \
+            -parallelizeTargets \
+            -jobs 4 \
             -skipPackagePluginValidation \
             -skipMacroValidation \
+            DEBUG_INFORMATION_FORMAT=dwarf \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            SWIFT_COMPILATION_MODE=incremental \
+            SWIFT_COMPILATION_MODE=wholemodule \
+            SWIFT_OPTIMIZATION_LEVEL=-O \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO | tee xcodebuild.log

@@ -31,8 +31,14 @@ xcodebuild build \
     -configuration Release \
     -derivedDataPath "${BUILD_DIR}" \
     -clonedSourcePackagesDirPath .spm \
+    -parallelizeTargets \
+    -jobs 4 \
     -skipPackagePluginValidation \
     -skipMacroValidation \
+    DEBUG_INFORMATION_FORMAT=dwarf \
+    COMPILER_INDEX_STORE_ENABLE=NO \
+    SWIFT_COMPILATION_MODE=wholemodule \
+    SWIFT_OPTIMIZATION_LEVEL=-O \
     CODE_SIGN_IDENTITY="" \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGNING_ALLOWED=NO
