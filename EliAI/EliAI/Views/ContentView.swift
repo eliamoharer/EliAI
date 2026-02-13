@@ -25,6 +25,9 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
+            Color(uiColor: .systemBackground)
+                .ignoresSafeArea()
+
             LinearGradient(
                 colors: [
                     Color.blue.opacity(0.20),
@@ -50,10 +53,11 @@ struct ContentView: View {
             .ignoresSafeArea()
 
             GeometryReader { geometry in
-                let hiddenOffset = geometry.size.height + geometry.safeAreaInsets.bottom
+                let peekHeight: CGFloat = 88 + geometry.safeAreaInsets.bottom
+                let collapsedOffsetBase = max(0, geometry.size.height - peekHeight)
                 let panelOffset = isChatVisible
                     ? max(0, dragOffset)
-                    : hiddenOffset + min(0, dragOffset)
+                    : max(0, collapsedOffsetBase + min(0, dragOffset))
 
                 ZStack(alignment: .bottom) {
                     ChatView(
@@ -68,22 +72,33 @@ struct ContentView: View {
                     .shadow(color: .black.opacity(0.16), radius: 22, x: 0, y: -5)
                     .offset(y: panelOffset)
                     .zIndex(2)
-                    .allowsHitTesting(isChatVisible)
+                    .allowsHitTesting(true)
                     .gesture(
                         DragGesture(minimumDistance: 8)
                             .onChanged { value in
-                                guard isChatVisible else { return }
-                                if value.translation.height > 0 {
+                                if isChatVisible {
+                                    if value.translation.height > 0 {
+                                        dragOffset = value.translation.height
+                                        dismissKeyboard()
+                                    }
+                                } else if value.translation.height < 0 {
                                     dragOffset = value.translation.height
-                                    dismissKeyboard()
                                 }
                             }
                             .onEnded { value in
-                                guard isChatVisible else { return }
-                                let threshold = geometry.size.height * 0.17
-                                if value.translation.height > threshold {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
-                                        isChatVisible = false
+                                if isChatVisible {
+                                    let collapseThreshold = geometry.size.height * 0.17
+                                    if value.translation.height > collapseThreshold {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                                            isChatVisible = false
+                                        }
+                                    }
+                                } else {
+                                    let expandThreshold: CGFloat = 70
+                                    if value.translation.height < -expandThreshold {
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                                            isChatVisible = true
+                                        }
                                     }
                                 }
                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
@@ -91,36 +106,12 @@ struct ContentView: View {
                                 }
                             }
                     )
-
-                    if !isChatVisible {
-                        collapsedHandle
-                            .padding(.bottom, max(8, geometry.safeAreaInsets.bottom))
-                            .offset(y: min(0, dragOffset))
-                            .zIndex(3)
-                            .gesture(
-                                DragGesture(minimumDistance: 6)
-                                    .onChanged { value in
-                                        if value.translation.height < 0 {
-                                            dragOffset = value.translation.height
-                                        }
-                                    }
-                                    .onEnded { value in
-                                        let threshold: CGFloat = 70
-                                        if value.translation.height < -threshold {
-                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
-                                                isChatVisible = true
-                                            }
-                                        }
-                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                                            dragOffset = 0
-                                        }
-                                    }
-                            )
-                            .onTapGesture {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
-                                    isChatVisible = true
-                                }
+                    .onTapGesture {
+                        if !isChatVisible {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                                isChatVisible = true
                             }
+                        }
                     }
                 }
             }
@@ -201,25 +192,5 @@ struct ContentView: View {
 
     private func dismissKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-    }
-
-    private var collapsedHandle: some View {
-        VStack(spacing: 8) {
-            Capsule()
-                .fill(Color.primary.opacity(0.30))
-                .frame(width: 48, height: 6)
-            Text("Open Chat")
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.35), lineWidth: 0.8)
-        )
-        .padding(.horizontal, 16)
     }
 }

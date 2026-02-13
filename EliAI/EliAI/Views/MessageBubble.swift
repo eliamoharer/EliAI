@@ -113,6 +113,7 @@ struct MessageBubble: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .foregroundColor(message.role == .user ? .white : .primary)
+        .textSelection(.enabled)
         .background(bubbleBackground)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
@@ -286,22 +287,41 @@ struct MessageBubble: View {
 
     private func looksLikeStandaloneLatex(_ line: String) -> Bool {
         guard !line.isEmpty else { return false }
-        let latexHints = [
-            "\\frac", "\\sqrt", "\\sum", "\\int", "\\prod", "\\begin", "\\end", "\\left", "\\right",
+        let explicitMathCommands = [
+            "\\frac", "\\sqrt", "\\sum", "\\int", "\\prod", "\\lim", "\\log", "\\ln",
+            "\\left", "\\right", "\\begin{", "\\end{", "\\boxed", "\\overline", "\\underline",
             "\\alpha", "\\beta", "\\gamma", "\\delta", "\\theta", "\\lambda", "\\mu", "\\pi",
-            "\\sigma", "\\phi", "\\omega", "\\Delta", "\\boxed"
+            "\\sigma", "\\phi", "\\omega", "\\Delta", "\\partial", "\\nabla", "\\infty",
+            "\\times", "\\cdot", "\\pm", "\\mp", "\\leq", "\\geq", "\\neq"
         ]
 
-        let hasLatexCommand = latexHints.contains { line.contains($0) } || line.contains("\\")
-        let hasMathStructure = line.contains("=") || line.contains("^") || line.contains("_")
+        if line.hasPrefix("$$"), line.hasSuffix("$$") {
+            return true
+        }
+        if line.hasPrefix("\\["), line.hasSuffix("\\]") {
+            return true
+        }
+        if line.hasPrefix("\\("), line.hasSuffix("\\)") {
+            return true
+        }
 
-        if !hasLatexCommand {
+        guard explicitMathCommands.contains(where: { line.contains($0) }) else {
             return false
         }
 
-        // Avoid converting normal prose that only happens to include a backslash.
-        let words = line.split(whereSeparator: { $0.isWhitespace }).count
-        return hasMathStructure || words <= 8
+        // Avoid treating prose with occasional latex command mentions as full equations.
+        let plainWordCount = line
+            .split(whereSeparator: { $0.isWhitespace })
+            .map { token -> String in
+                token.trimmingCharacters(in: CharacterSet(charactersIn: "\\{}[]()^_+-=*/,:;.!?\"'`$"))
+            }
+            .filter { token in
+                !token.isEmpty && token.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) }
+            }
+            .count
+
+        let hasMathStructure = line.contains("=") || line.contains("^") || line.contains("_")
+        return hasMathStructure || plainWordCount <= 2
     }
 
     private func nextMathStart(

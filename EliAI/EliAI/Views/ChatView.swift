@@ -7,6 +7,7 @@ struct ChatView: View {
     var agentManager: AgentManager
     var modelDownloader: ModelDownloader
     var onShowSettings: () -> Void = {}
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
@@ -371,17 +372,27 @@ struct ChatView: View {
         .background(
             Rectangle()
                 .fill(.ultraThinMaterial)
-                .overlay(Color.white.opacity(0.04))
+                .overlay(colorScheme == .light ? Color.black.opacity(0.05) : Color.white.opacity(0.04))
+                .overlay(
+                    Rectangle()
+                        .stroke(Color.white.opacity(colorScheme == .light ? 0.35 : 0.16), lineWidth: 0.5)
+                )
+                .ignoresSafeArea(edges: .bottom)
         )
     }
 
     private var chatPanelBackground: some View {
         Rectangle()
             .fill(.ultraThinMaterial)
-            .overlay(Color.white.opacity(0.05))
+            .overlay(Color.white.opacity(colorScheme == .light ? 0.16 : 0.05))
+            .overlay(colorScheme == .light ? Color.black.opacity(0.06) : Color.clear)
             .overlay(
                 Rectangle()
-                    .stroke(Color.white.opacity(0.20), lineWidth: 0.6)
+                    .stroke(Color.white.opacity(colorScheme == .light ? 0.42 : 0.20), lineWidth: 0.6)
+            )
+            .overlay(
+                Rectangle()
+                    .stroke(Color.black.opacity(colorScheme == .light ? 0.08 : 0.25), lineWidth: 0.35)
             )
             .ignoresSafeArea()
     }
