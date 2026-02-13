@@ -136,8 +136,7 @@ struct MessageBubble: View {
         switch segment.kind {
         case let .markdown(text):
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(attributedMessageText(from: text))
-                    .textSelection(.enabled)
+                MarkdownMathText(text: text, role: message.role)
             }
         case let .math(latex, display):
             MathSegmentView(latex: latex, display: display, role: message.role)
@@ -253,7 +252,7 @@ struct MessageBubble: View {
             parsedSegments = [MessageSegment(kind: .markdown(text))]
         }
 
-        return promoteStandaloneLatex(in: mergeMarkdownSegments(parsedSegments))
+        return splitMarkdownForRulesAndTables(in: mergeMarkdownSegments(parsedSegments))
     }
 
     private func parseCodeFenceAwareSegments(_ text: String) -> [MessageSegment] {
@@ -332,14 +331,14 @@ struct MessageBubble: View {
         while let startMatch = nextMathStart(in: text, from: cursor, delimiters: delimiters) {
             let leading = String(text[cursor..<startMatch.range.lowerBound])
             if !leading.isEmpty {
-                segments.append(MessageSegment(kind: .markdown(leading.replacingOccurrences(of: "\\$", with: "$"))))
+                segments.append(MessageSegment(kind: .markdown(leading)))
             }
 
             let mathStart = startMatch.range.upperBound
             guard let endRange = nextMathEnd(in: text, from: mathStart, delimiter: startMatch.delimiter) else {
                 let remainder = String(text[startMatch.range.lowerBound...])
                 if !remainder.isEmpty {
-                    segments.append(MessageSegment(kind: .markdown(remainder.replacingOccurrences(of: "\\$", with: "$"))))
+                    segments.append(MessageSegment(kind: .markdown(remainder)))
                 }
                 cursor = text.endIndex
                 break
@@ -353,7 +352,7 @@ struct MessageBubble: View {
         }
 
         if cursor < text.endIndex {
-            let trailing = String(text[cursor...]).replacingOccurrences(of: "\\$", with: "$")
+            let trailing = String(text[cursor...])
             if !trailing.isEmpty {
                 segments.append(MessageSegment(kind: .markdown(trailing)))
             }
@@ -382,31 +381,39 @@ struct MessageBubble: View {
         return merged
     }
 
-    private func promoteStandaloneLatex(in segments: [MessageSegment]) -> [MessageSegment] {
-        var promoted: [MessageSegment] = []
+    private func splitMarkdownForRulesAndTables(in segments: [MessageSegment]) -> [MessageSegment] {
+        var splitSegments: [MessageSegment] = []
 
         for segment in segments {
             switch segment.kind {
             case let .markdown(text):
-                promoted.append(contentsOf: splitMarkdownIntoLatexAwareSegments(text))
+                splitSegments.append(contentsOf: splitMarkdownChunkForRulesAndTables(text))
             default:
-                promoted.append(segment)
+                splitSegments.append(segment)
             }
         }
 
-        return mergeMarkdownSegments(promoted)
+        return mergeMarkdownSegments(splitSegments)
     }
 
-    private func splitMarkdownIntoLatexAwareSegments(_ text: String) -> [MessageSegment] {
+    private func splitMarkdownChunkForRulesAndTables(_ text: String) -> [MessageSegment] {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         var result: [MessageSegment] = []
+        var markdownBuffer: [String] = []
         var index = 0
+
+        func flushMarkdownBuffer() {
+            guard !markdownBuffer.isEmpty else { return }
+            result.append(MessageSegment(kind: .markdown(markdownBuffer.joined(separator: "\n"))))
+            markdownBuffer.removeAll(keepingCapacity: true)
+        }
 
         while index < lines.count {
             let line = String(lines[index])
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
             if isHorizontalRule(trimmed) {
+                flushMarkdownBuffer()
                 result.append(MessageSegment(kind: .rule))
                 index += 1
                 continue
@@ -415,6 +422,7 @@ struct MessageBubble: View {
             if index + 1 < lines.count,
                looksLikeTableHeader(line),
                looksLikeTableDivider(String(lines[index + 1])) {
+                flushMarkdownBuffer()
                 var tableLines: [String] = [line, String(lines[index + 1])]
                 index += 2
 
@@ -433,21 +441,11 @@ struct MessageBubble: View {
                 continue
             }
 
-            if looksLikeStandaloneLatex(trimmed) {
-                result.append(MessageSegment(kind: .math(trimmed, display: true)))
-            } else {
-                var restored = line
-                if index < lines.count - 1 {
-                    restored.append("\n")
-                }
-                if !restored.isEmpty {
-                    result.append(MessageSegment(kind: .markdown(restored)))
-                }
-            }
-
+            markdownBuffer.append(line)
             index += 1
         }
 
+        flushMarkdownBuffer()
         return result
     }
 
@@ -469,45 +467,6 @@ struct MessageBubble: View {
             .range(of: #"^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$"#, options: .regularExpression) != nil
     }
 
-    private func looksLikeStandaloneLatex(_ line: String) -> Bool {
-        guard !line.isEmpty else { return false }
-        let explicitMathCommands = [
-            "\\frac", "\\sqrt", "\\sum", "\\int", "\\prod", "\\lim", "\\log", "\\ln",
-            "\\left", "\\right", "\\begin{", "\\end{", "\\boxed", "\\overline", "\\underline",
-            "\\alpha", "\\beta", "\\gamma", "\\delta", "\\theta", "\\lambda", "\\mu", "\\pi",
-            "\\sigma", "\\phi", "\\omega", "\\Delta", "\\partial", "\\nabla", "\\infty",
-            "\\times", "\\cdot", "\\pm", "\\mp", "\\leq", "\\geq", "\\neq"
-        ]
-
-        if line.hasPrefix("$$"), line.hasSuffix("$$") {
-            return true
-        }
-        if line.hasPrefix("\\["), line.hasSuffix("\\]") {
-            return true
-        }
-        if line.hasPrefix("\\("), line.hasSuffix("\\)") {
-            return true
-        }
-
-        guard explicitMathCommands.contains(where: { line.contains($0) }) else {
-            return false
-        }
-
-        // Avoid treating prose with occasional latex command mentions as full equations.
-        let plainWordCount = line
-            .split(whereSeparator: { $0.isWhitespace })
-            .map { token -> String in
-                token.trimmingCharacters(in: CharacterSet(charactersIn: "\\{}[]()^_+-=*/,:;.!?\"'`$"))
-            }
-            .filter { token in
-                !token.isEmpty && token.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) }
-            }
-            .count
-
-        let hasMathStructure = line.contains("=") || line.contains("^") || line.contains("_")
-        return hasMathStructure || plainWordCount <= 2
-    }
-
     private func nextMathStart(
         in text: String,
         from start: String.Index,
@@ -519,10 +478,6 @@ struct MessageBubble: View {
             var searchStart = start
             while searchStart < text.endIndex,
                   let range = text[searchStart...].range(of: delimiter.open) {
-                if delimiter.open == "$", text[range.lowerBound...].hasPrefix("$$") {
-                    searchStart = text.index(after: range.lowerBound)
-                    continue
-                }
                 if isEscaped(text, at: range.lowerBound) {
                     searchStart = range.upperBound
                     continue
@@ -551,10 +506,6 @@ struct MessageBubble: View {
 
         while searchStart < text.endIndex,
               let range = text[searchStart...].range(of: delimiter.close) {
-            if delimiter.close == "$", text[range.lowerBound...].hasPrefix("$$") {
-                searchStart = text.index(after: range.lowerBound)
-                continue
-            }
             if isEscaped(text, at: range.lowerBound) {
                 searchStart = range.upperBound
                 continue
@@ -589,105 +540,6 @@ struct MessageBubble: View {
         return slashCount % 2 == 1
     }
 
-    private func attributedMessageText(from text: String) -> AttributedString {
-        let normalized = normalizedMarkdown(text.isEmpty ? " " : text)
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .full,
-            failurePolicy: .returnPartiallyParsedIfPossible
-        )
-        if let attributed = try? AttributedString(markdown: normalized, options: options) {
-            return attributed
-        }
-        return AttributedString(normalized)
-    }
-
-    private func normalizedMarkdown(_ text: String) -> String {
-        var value = text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\\n", with: "\n")
-
-        value = value.replacingOccurrences(
-            of: #"(?<!\n)\s+(#{1,6}\s)"#,
-            with: "\n$1",
-            options: .regularExpression
-        )
-        value = value.replacingOccurrences(
-            of: #"(?m)^(#{1,6})([^ #])"#,
-            with: "$1 $2",
-            options: .regularExpression
-        )
-
-        value = value.replacingOccurrences(
-            of: #"(?<!\n)\s+(\d+\.\s)"#,
-            with: "\n$1",
-            options: .regularExpression
-        )
-        value = value.replacingOccurrences(
-            of: #"(?m)^(\s*)-(?!-)(\S)"#,
-            with: "$1- $2",
-            options: .regularExpression
-        )
-
-        let lines = value.split(separator: "\n", omittingEmptySubsequences: false)
-        let normalizedLines = lines.map { rawLine -> String in
-            let line = String(rawLine)
-            return normalizeInlineListSyntax(in: line)
-        }
-
-        return normalizedLines.joined(separator: "\n")
-    }
-
-    private func normalizeInlineListSyntax(in line: String) -> String {
-        var output = line
-        let trimmed = output.trimmingCharacters(in: .whitespaces)
-
-        if trimmed.isEmpty {
-            return output
-        }
-
-        if let range = output.range(of: ": - ") {
-            let prefix = String(output[..<range.lowerBound]) + ":"
-            let listPart = String(output[range.upperBound...])
-                .replacingOccurrences(of: " - ", with: "\n- ")
-            output = prefix + "\n- " + listPart
-        }
-
-        let looksLikeInlineList = output.contains(" - **") ||
-            output.contains(" - `") ||
-            output.contains(" - [") ||
-            output.contains(" - (") ||
-            output.range(of: #"\*\*[^*\n]{2,}\*\*\s*-\s*"#, options: .regularExpression) != nil ||
-            output.range(of: #"\*\*[^*\n]{2,}\s-\s[^*\n]{2,}\*\*"#, options: .regularExpression) != nil
-
-        if looksLikeInlineList {
-            output = output.replacingOccurrences(
-                of: #"\*\*([^*\n]{2,}?)\s-\s([^*\n]{2,}?)\*\*"#,
-                with: "\n- **$1** - $2",
-                options: .regularExpression
-            )
-            output = output.replacingOccurrences(
-                of: #"(?<!- )(\*\*[^*\n]{2,}\*\*\s*-\s*)"#,
-                with: "\n- $1",
-                options: .regularExpression
-            )
-            output = output.replacingOccurrences(
-                of: #"\.\s*\*\*([^*\n]{2,})\*\*\s*-\s*"#,
-                with: ".\n- **$1** - ",
-                options: .regularExpression
-            )
-            output = output.replacingOccurrences(
-                of: #"\s+-\s+(?=(\*\*|`|\[|\(|[A-Za-z0-9]))"#,
-                with: "\n- ",
-                options: .regularExpression
-            )
-        }
-
-        if output.hasPrefix("\n- ") {
-            output.removeFirst()
-        }
-
-        return output
-    }
 }
 
 private func sanitizeLatexForSwiftMath(_ latex: String) -> String {
@@ -730,6 +582,173 @@ private struct MathSegmentView: View {
         } else {
             mathLabel
                 .frame(minHeight: 30)
+        }
+    }
+}
+
+private struct MarkdownMathText: UIViewRepresentable {
+    let text: String
+    let role: ChatMessage.Role
+
+    final class Coordinator {
+        var imageCache: [String: UIImage] = [:]
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.backgroundColor = .clear
+        view.isEditable = false
+        view.isScrollEnabled = false
+        view.isSelectable = true
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.setContentHuggingPriority(.required, for: .vertical)
+        view.setContentCompressionResistancePriority(.required, for: .vertical)
+        return view
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        uiView.attributedText = makeAttributedText(coordinator: context.coordinator)
+        uiView.tintColor = .systemBlue
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
+        guard let width = proposal.width, width.isFinite, width > 0 else {
+            return nil
+        }
+        let measured = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: ceil(measured.height))
+    }
+
+    private func makeAttributedText(coordinator: Coordinator) -> NSAttributedString {
+        let normalized = MessageFormatting.normalizeMarkdown(text.isEmpty ? " " : text)
+        let extracted = MessageFormatting.extractInlineMathPlaceholders(from: normalized)
+
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .full,
+            failurePolicy: .returnPartiallyParsedIfPossible
+        )
+
+        let parsed: AttributedString
+        if let attributed = try? AttributedString(markdown: extracted.markdown, options: options) {
+            parsed = attributed
+        } else {
+            parsed = AttributedString(extracted.markdown)
+        }
+
+        let mutable = NSMutableAttributedString(attributedString: NSAttributedString(parsed))
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        if role == .user {
+            mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)
+        }
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byWordWrapping
+        mutable.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullRange)
+
+        applyInlineMathAttachments(
+            to: mutable,
+            tokens: extracted.tokens,
+            coordinator: coordinator
+        )
+
+        return mutable
+    }
+
+    private func applyInlineMathAttachments(
+        to mutable: NSMutableAttributedString,
+        tokens: [InlineMathToken],
+        coordinator: Coordinator
+    ) {
+        for token in tokens {
+            var searchRange = NSRange(location: 0, length: mutable.length)
+
+            while true {
+                let currentString = mutable.string as NSString
+                let found = currentString.range(of: token.placeholder, options: [], range: searchRange)
+                guard found.location != NSNotFound else { break }
+
+                let fontAnchor = max(0, found.location - 1)
+                let fallbackFont = UIFont.preferredFont(forTextStyle: .body)
+                let referenceFont = (mutable.attribute(.font, at: fontAnchor, effectiveRange: nil) as? UIFont) ?? fallbackFont
+                let attachment = inlineMathAttachment(
+                    latex: token.latex,
+                    referenceFont: referenceFont,
+                    coordinator: coordinator
+                )
+
+                mutable.replaceCharacters(in: found, with: NSAttributedString(attachment: attachment))
+
+                let nextLocation = min(found.location + 1, mutable.length)
+                if nextLocation >= mutable.length {
+                    break
+                }
+                searchRange = NSRange(location: nextLocation, length: mutable.length - nextLocation)
+            }
+        }
+    }
+
+    private func inlineMathAttachment(
+        latex: String,
+        referenceFont: UIFont,
+        coordinator: Coordinator
+    ) -> NSTextAttachment {
+        let color = role == .user ? UIColor.white : UIColor.label
+        let mathFontSize = max(17, referenceFont.pointSize + 2)
+        let cacheKey = "\(role.rawValue)|\(mathFontSize)|\(latex)"
+
+        let image: UIImage
+        if let cached = coordinator.imageCache[cacheKey] {
+            image = cached
+        } else {
+            image = renderInlineMathImage(latex: latex, color: color, fontSize: mathFontSize)
+            coordinator.imageCache[cacheKey] = image
+        }
+
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        let verticalOffset = (referenceFont.capHeight - image.size.height) / 2.0
+        attachment.bounds = CGRect(
+            x: 0,
+            y: verticalOffset,
+            width: image.size.width,
+            height: image.size.height
+        )
+        return attachment
+    }
+
+    private func renderInlineMathImage(latex: String, color: UIColor, fontSize: CGFloat) -> UIImage {
+        let label = MTMathUILabel()
+        label.backgroundColor = .clear
+        label.latex = sanitizeLatexForSwiftMath(latex)
+        label.font = MTFontManager().font(withName: MathFont.latinModernFont.rawValue, size: fontSize)
+        label.labelMode = .text
+        label.textColor = color
+        label.textAlignment = .left
+        label.contentInsets = MTEdgeInsets(top: 1, left: 0, bottom: 1, right: 0)
+
+        let measured = label.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
+        let width = max(6, ceil(measured.width))
+        let height = max(ceil(fontSize * 1.2), ceil(measured.height))
+        let renderSize = CGSize(width: width, height: height)
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        format.scale = UIScreen.main.scale
+        let renderer = UIGraphicsImageRenderer(size: renderSize, format: format)
+
+        return renderer.image { context in
+            label.frame = CGRect(
+                x: 0,
+                y: max(0, (renderSize.height - measured.height) / 2),
+                width: width,
+                height: measured.height
+            )
+            label.layer.render(in: context.cgContext)
         }
     }
 }

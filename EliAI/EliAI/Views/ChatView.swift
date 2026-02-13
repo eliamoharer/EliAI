@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 struct ChatView: View {
     var chatManager: ChatManager
@@ -13,6 +14,7 @@ struct ChatView: View {
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
     @State private var showFileImporter = false
+    @State private var keyboardOverlap: CGFloat = 0
     private let bottomAnchorID = "chatBottomAnchor"
 
     private var currentMessages: [ChatMessage] {
@@ -41,6 +43,12 @@ struct ChatView: View {
                 modelDownloader.error = "Import failed: \(error.localizedDescription)"
                 modelDownloader.log = "Import failed."
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            handleKeyboardFrameChange(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+            handleKeyboardFrameChange(notification, forceHide: true)
         }
     }
 
@@ -392,6 +400,9 @@ struct ChatView: View {
         if isCollapsed {
             return 12
         }
+        if keyboardOverlap > 0 {
+            return keyboardOverlap + 8
+        }
         return 30
     }
 
@@ -487,6 +498,54 @@ struct ChatView: View {
             }
         } else {
             proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+        }
+    }
+
+    private func handleKeyboardFrameChange(_ notification: Notification, forceHide: Bool = false) {
+        let userInfo = notification.userInfo ?? [:]
+        let duration = (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+        let curveRawValue = (userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? UIView.AnimationCurve.easeInOut.rawValue
+        let curve = UIView.AnimationCurve(rawValue: curveRawValue) ?? .easeInOut
+
+        let overlap: CGFloat
+        if forceHide {
+            overlap = 0
+        } else if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+            overlap = calculateKeyboardOverlap(for: frameValue)
+        } else {
+            overlap = 0
+        }
+
+        withAnimation(animation(for: curve, duration: duration)) {
+            keyboardOverlap = max(0, overlap)
+        }
+    }
+
+    private func calculateKeyboardOverlap(for keyboardFrame: CGRect) -> CGFloat {
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first,
+              let keyWindow = windowScene.windows.first(where: \.isKeyWindow) else {
+            return 0
+        }
+
+        let localFrame = keyWindow.convert(keyboardFrame, from: nil)
+        let overlap = keyWindow.bounds.maxY - localFrame.minY - keyWindow.safeAreaInsets.bottom
+        return max(0, overlap)
+    }
+
+    private func animation(for curve: UIView.AnimationCurve, duration: Double) -> Animation {
+        switch curve {
+        case .easeInOut:
+            return .easeInOut(duration: duration)
+        case .easeIn:
+            return .easeIn(duration: duration)
+        case .easeOut:
+            return .easeOut(duration: duration)
+        case .linear:
+            return .linear(duration: duration)
+        @unknown default:
+            return .easeOut(duration: duration)
         }
     }
 
