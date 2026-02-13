@@ -168,15 +168,7 @@ struct ChatView: View {
                 }
             }
             .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 0, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        Rectangle()
-                            .fill(Color.white.opacity(0.12))
-                    )
-            )
-            
+             
             // Messages List
             ScrollViewReader { proxy in
                 ScrollView {
@@ -263,12 +255,7 @@ struct ChatView: View {
                     if isGenerating { scrollToBottom(proxy: proxy) }
                 }
             }
-            .background(
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .overlay(Color.black.opacity(0.02))
-            )
-            
+             
             // Input Area
             VStack(spacing: 0) {
                 Divider()
@@ -304,19 +291,27 @@ struct ChatView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 10)
             }
-            .background(
-                Rectangle()
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.22), Color.white.opacity(0.03)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-                    .ignoresSafeArea(edges: .bottom)
-            )
         }
+        .background(
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.24),
+                            Color.white.opacity(0.08),
+                            Color.white.opacity(0.02)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    Rectangle()
+                        .stroke(Color.white.opacity(0.18), lineWidth: 0.6)
+                )
+                .ignoresSafeArea()
+        )
         .fileImporter(
             isPresented: $showFileImporter,
             allowedContentTypes: [UTType(filenameExtension: "gguf") ?? .data],

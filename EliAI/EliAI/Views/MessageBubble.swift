@@ -1,5 +1,7 @@
 import Foundation
 import SwiftUI
+import SwiftMath
+import UIKit
 
 private struct MessageSegment {
     enum Kind {
@@ -31,13 +33,13 @@ struct MessageBubble: View {
             } else {
                 Image(systemName: "brain.head.profile")
                     .resizable()
-                    .frame(width: 24, height: 24)
+                    .frame(width: 22, height: 22)
                     .foregroundColor(.blue)
                     .padding(6)
-                    .background(Circle().fill(Color.blue.opacity(0.1)))
+                    .background(Circle().fill(Color.blue.opacity(0.14)))
             }
 
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {
                 if message.role == .tool {
                     HStack {
                         Image(systemName: "hammer.fill")
@@ -74,7 +76,7 @@ struct MessageBubble: View {
             } else {
                 Image(systemName: "person.circle.fill")
                     .resizable()
-                    .frame(width: 24, height: 24)
+                    .frame(width: 22, height: 22)
                     .foregroundColor(.gray)
             }
         }
@@ -87,55 +89,39 @@ struct MessageBubble: View {
             if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(attributedMessageText(from: text))
                     .textSelection(.enabled)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(backgroundColor)
-                    .foregroundColor(foregroundColor)
-                    .cornerRadius(18)
-                    .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .foregroundColor(message.role == .user ? .white : .primary)
+                    .background(bubbleBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.white.opacity(message.role == .user ? 0.22 : 0.25), lineWidth: 0.7)
+                    )
             }
-
         case let .math(latex, display):
-            VStack(alignment: .leading, spacing: 4) {
-                if display {
-                    Text("Math")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                Text(formatLatexExpression(latex))
-                    .font(.system(display ? .body : .callout, design: .monospaced))
-                    .textSelection(.enabled)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(UIColor.secondarySystemBackground))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.primary.opacity(0.18), lineWidth: 1)
+            MathSegmentView(latex: latex, display: display, role: message.role)
+        }
+    }
+
+    @ViewBuilder
+    private var bubbleBackground: some View {
+        switch message.role {
+        case .user:
+            LinearGradient(
+                colors: [Color.blue.opacity(0.95), Color.blue.opacity(0.78)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-    }
-
-    var backgroundColor: Color {
-        switch message.role {
-        case .user:
-            return Color.blue
         case .assistant:
-            return Color(UIColor.secondarySystemBackground)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.thinMaterial)
         case .system:
-            return Color.yellow.opacity(0.2)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.yellow.opacity(0.22))
         case .tool:
-            return Color.orange.opacity(0.1)
-        }
-    }
-
-    var foregroundColor: Color {
-        switch message.role {
-        case .user:
-            return .white
-        default:
-            return .primary
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.orange.opacity(0.18))
         }
     }
 
@@ -337,190 +323,92 @@ struct MessageBubble: View {
         }
         return AttributedString(normalized)
     }
+}
 
-    private func formatLatexExpression(_ latex: String) -> String {
-        var output = latex.trimmingCharacters(in: .whitespacesAndNewlines)
-        output = transformLatexFunctions(output)
-        output = replaceMathCommands(in: output)
-        output = normalizeScripts(in: output)
-        output = output
-            .replacingOccurrences(of: "\\left", with: "")
-            .replacingOccurrences(of: "\\right", with: "")
-            .replacingOccurrences(of: "{", with: "(")
-            .replacingOccurrences(of: "}", with: ")")
-            .replacingOccurrences(of: "\\", with: "")
-        return collapseWhitespace(in: output)
+private struct MathSegmentView: View {
+    let latex: String
+    let display: Bool
+    let role: ChatMessage.Role
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if display {
+                Text("Math")
+                    .font(.caption2)
+                    .foregroundColor(role == .user ? .white.opacity(0.85) : .secondary)
+            }
+
+            LaTeXMathLabel(
+                equation: latex,
+                font: .latinModernFont,
+                textAlignment: .left,
+                fontSize: display ? 23 : 20,
+                labelMode: display ? .display : .text,
+                textColor: role == .user ? MTColor(Color.white) : MTColor(Color.primary)
+            )
+            .frame(minHeight: display ? 40 : 28)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(background)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(role == .user ? 0.22 : 0.25), lineWidth: 0.7)
+        )
     }
 
-    private func transformLatexFunctions(_ input: String) -> String {
-        var output = ""
-        var cursor = input.startIndex
-
-        while cursor < input.endIndex {
-            if input[cursor...].hasPrefix("\\frac") {
-                var next = input.index(cursor, offsetBy: 5)
-                next = skipWhitespace(in: input, from: next)
-                if let numerator = parseBracedArgument(in: input, from: next) {
-                    var denominatorStart = skipWhitespace(in: input, from: numerator.next)
-                    if let denominator = parseBracedArgument(in: input, from: denominatorStart) {
-                        output += "(\(transformLatexFunctions(numerator.content)))/(\(transformLatexFunctions(denominator.content)))"
-                        cursor = denominator.next
-                        continue
-                    }
-                }
-            }
-
-            if input[cursor...].hasPrefix("\\sqrt") {
-                var next = input.index(cursor, offsetBy: 5)
-                next = skipWhitespace(in: input, from: next)
-                if let argument = parseBracedArgument(in: input, from: next) {
-                    output += "sqrt(\(transformLatexFunctions(argument.content)))"
-                    cursor = argument.next
-                    continue
-                }
-            }
-
-            if input[cursor...].hasPrefix("\\boxed") {
-                var next = input.index(cursor, offsetBy: 6)
-                next = skipWhitespace(in: input, from: next)
-                if let argument = parseBracedArgument(in: input, from: next) {
-                    output += "[\(transformLatexFunctions(argument.content))]"
-                    cursor = argument.next
-                    continue
-                }
-            }
-
-            if input[cursor...].hasPrefix("\\text") {
-                var next = input.index(cursor, offsetBy: 5)
-                next = skipWhitespace(in: input, from: next)
-                if let argument = parseBracedArgument(in: input, from: next) {
-                    output += transformLatexFunctions(argument.content)
-                    cursor = argument.next
-                    continue
-                }
-            }
-
-            output.append(input[cursor])
-            cursor = input.index(after: cursor)
+    @ViewBuilder
+    private var background: some View {
+        if role == .user {
+            LinearGradient(
+                colors: [Color.blue.opacity(0.94), Color.blue.opacity(0.76)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        } else {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.thinMaterial)
         }
+    }
+}
 
-        return output
+private struct LaTeXMathLabel: UIViewRepresentable {
+    // Native renderer from SwiftMath; no web assets or network needed at runtime.
+    var equation: String
+    var font: MathFont = .latinModernFont
+    var textAlignment: MTTextAlignment = .left
+    var fontSize: CGFloat = 30
+    var labelMode: MTMathUILabelMode = .text
+    var textColor: MTColor = MTColor(Color.primary)
+    var insets: MTEdgeInsets = MTEdgeInsets()
+
+    func makeUIView(context: Context) -> MTMathUILabel {
+        let view = MTMathUILabel()
+        view.setContentHuggingPriority(.required, for: .vertical)
+        view.setContentCompressionResistancePriority(.required, for: .vertical)
+        view.backgroundColor = .clear
+        return view
     }
 
-    private func parseBracedArgument(in text: String, from start: String.Index) -> (content: String, next: String.Index)? {
-        guard start < text.endIndex, text[start] == "{" else {
-            return nil
+    func updateUIView(_ view: MTMathUILabel, context: Context) {
+        view.latex = equation
+        let selectedFont = MTFontManager().font(withName: font.rawValue, size: fontSize)
+        selectedFont?.fallbackFont = UIFont.systemFont(ofSize: fontSize)
+        view.font = selectedFont
+        view.textAlignment = textAlignment
+        view.labelMode = labelMode
+        view.textColor = textColor
+        view.contentInsets = insets
+        view.invalidateIntrinsicContentSize()
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: MTMathUILabel, context: Context) -> CGSize? {
+        if let width = proposal.width, width.isFinite, width > 0 {
+            uiView.preferredMaxLayoutWidth = width
+            let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+            return CGSize(width: width, height: max(24, size.height))
         }
-
-        var depth = 0
-        var cursor = start
-        let contentStart = text.index(after: start)
-
-        while cursor < text.endIndex {
-            let character = text[cursor]
-            if character == "{" {
-                depth += 1
-            } else if character == "}" {
-                depth -= 1
-                if depth == 0 {
-                    let content = String(text[contentStart..<cursor])
-                    let next = text.index(after: cursor)
-                    return (content, next)
-                }
-            }
-            cursor = text.index(after: cursor)
-        }
-
         return nil
-    }
-
-    private func skipWhitespace(in text: String, from start: String.Index) -> String.Index {
-        var cursor = start
-        while cursor < text.endIndex, text[cursor].isWhitespace {
-            cursor = text.index(after: cursor)
-        }
-        return cursor
-    }
-
-    private func replaceMathCommands(in text: String) -> String {
-        let replacements: [String: String] = [
-            "\\cdot": " * ",
-            "\\times": " x ",
-            "\\div": " / ",
-            "\\pm": " +/- ",
-            "\\mp": " -/+ ",
-            "\\neq": " != ",
-            "\\leq": " <= ",
-            "\\geq": " >= ",
-            "\\approx": " ~= ",
-            "\\to": " -> ",
-            "\\rightarrow": " -> ",
-            "\\leftarrow": " <- ",
-            "\\infty": " infinity ",
-            "\\sum": " sum ",
-            "\\prod": " prod ",
-            "\\int": " integral ",
-            "\\alpha": " alpha ",
-            "\\beta": " beta ",
-            "\\gamma": " gamma ",
-            "\\delta": " delta ",
-            "\\epsilon": " epsilon ",
-            "\\theta": " theta ",
-            "\\lambda": " lambda ",
-            "\\mu": " mu ",
-            "\\pi": " pi ",
-            "\\sigma": " sigma ",
-            "\\phi": " phi ",
-            "\\omega": " omega ",
-            "\\sin": " sin ",
-            "\\cos": " cos ",
-            "\\tan": " tan ",
-            "\\log": " log ",
-            "\\ln": " ln ",
-            "\\,": " ",
-            "\\;": " ",
-            "\\!": ""
-        ]
-
-        var output = text
-        for key in replacements.keys.sorted(by: { $0.count > $1.count }) {
-            if let value = replacements[key] {
-                output = output.replacingOccurrences(of: key, with: value)
-            }
-        }
-
-        return output
-    }
-
-    private func normalizeScripts(in text: String) -> String {
-        var output = ""
-        var cursor = text.startIndex
-
-        while cursor < text.endIndex {
-            let character = text[cursor]
-            if character == "^" || character == "_" {
-                let marker = character
-                let next = text.index(after: cursor)
-                if next < text.endIndex, text[next] == "{", let argument = parseBracedArgument(in: text, from: next) {
-                    output.append(marker)
-                    output += "(\(argument.content))"
-                    cursor = argument.next
-                    continue
-                }
-            }
-
-            output.append(character)
-            cursor = text.index(after: cursor)
-        }
-
-        return output
-    }
-
-    private func collapseWhitespace(in text: String) -> String {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        let normalized = lines.map { line in
-            line.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        }
-        return normalized.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

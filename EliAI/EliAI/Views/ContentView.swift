@@ -58,17 +58,19 @@ struct ContentView: View {
                 .offset(y: isChatVisible ? 0 : geometry.size.height - collapsedHeight)
                 .offset(y: dragOffset)
                 .clipped()
+                .zIndex(2)
                 .gesture(
                     DragGesture()
                         .onChanged { value in
                             let translation = value.translation.height
+                            let clamped = min(max(translation, -geometry.size.height * 0.9), geometry.size.height * 0.9)
                             if isChatVisible {
-                                if translation > 0 {
-                                    dragOffset = translation
+                                if clamped > 0 {
+                                    dragOffset = clamped
                                     dismissKeyboard()
                                 }
-                            } else if translation < 0 {
-                                dragOffset = translation
+                            } else if clamped < 0 {
+                                dragOffset = clamped
                             }
                         }
                         .onEnded { value in
@@ -88,6 +90,25 @@ struct ContentView: View {
                             withAnimation { dragOffset = 0 }
                         }
                 )
+                .overlay(alignment: .top) {
+                    if !isChatVisible {
+                        VStack(spacing: 8) {
+                            Capsule()
+                                .fill(Color.primary.opacity(0.28))
+                                .frame(width: 46, height: 6)
+                            Text("Open Chat")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.spring()) {
+                                isChatVisible = true
+                            }
+                        }
+                    }
+                }
             }
             .sheet(isPresented: $showingNewChatDialog) {
                 NewChatDialog(isPresented: $showingNewChatDialog) { name in
