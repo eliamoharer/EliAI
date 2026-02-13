@@ -444,6 +444,11 @@ struct MessageBubble: View {
             with: "\n$1",
             options: .regularExpression
         )
+        value = value.replacingOccurrences(
+            of: #":\s*(\*\*[^*\n]{2,}\*\*)"#,
+            with: ":\n$1",
+            options: .regularExpression
+        )
         let lines = value.split(separator: "\n", omittingEmptySubsequences: false)
         let normalizedLines = lines.map { rawLine -> String in
             let line = String(rawLine)
@@ -463,13 +468,40 @@ struct MessageBubble: View {
             output = prefix + "\n- " + listPart
         }
 
+        if output.contains(":"), output.contains(" - "), !output.contains("\n- ") {
+            if let colonRange = output.range(of: ":") {
+                let prefix = String(output[..<colonRange.upperBound])
+                let rest = String(output[colonRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+                if !rest.isEmpty {
+                    output = prefix + "\n- " + rest
+                }
+            }
+        }
+
         let looksLikeInlineList = output.contains(" - **") ||
             output.contains(" - `") ||
             output.contains(" - [") ||
             output.contains(" - (") ||
+            output.range(of: #"\*\*[^*\n]{2,}\*\*\s*-\s*"#, options: .regularExpression) != nil ||
+            output.range(of: #"\*\*[^*\n]{2,}\s-\s[^*\n]{2,}\*\*"#, options: .regularExpression) != nil ||
             output.trimmingCharacters(in: .whitespaces).hasPrefix("#")
 
         if looksLikeInlineList {
+            output = output.replacingOccurrences(
+                of: #"\*\*([^*\n]{2,}?)\s-\s([^*\n]{2,}?)\*\*"#,
+                with: "\n- **$1** - $2",
+                options: .regularExpression
+            )
+            output = output.replacingOccurrences(
+                of: #"(?<!- )(\*\*[^*\n]{2,}\*\*\s*-\s*)"#,
+                with: "\n- $1",
+                options: .regularExpression
+            )
+            output = output.replacingOccurrences(
+                of: #"\.\s*\*\*([^*\n]{2,})\*\*\s*-\s*"#,
+                with: ".\n- **$1** - ",
+                options: .regularExpression
+            )
             output = output.replacingOccurrences(
                 of: #"\s+-(?=[A-Za-z])"#,
                 with: "\n- ",
@@ -480,6 +512,10 @@ struct MessageBubble: View {
                 with: "\n- ",
                 options: .regularExpression
             )
+        }
+
+        if output.hasPrefix("\n- ") {
+            output.removeFirst()
         }
 
         return output

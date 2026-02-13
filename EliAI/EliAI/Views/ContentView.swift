@@ -54,7 +54,7 @@ struct ContentView: View {
 
             GeometryReader { geometry in
                 let fullHeight = geometry.size.height + geometry.safeAreaInsets.bottom
-                let expandedTopOffset: CGFloat = 44
+                let expandedTopOffset: CGFloat = 10
                 let peekVisibleHeight: CGFloat = 120
                 let collapsedOffsetBase = max(0, fullHeight - peekVisibleHeight)
                 let panelOffset = isChatVisible

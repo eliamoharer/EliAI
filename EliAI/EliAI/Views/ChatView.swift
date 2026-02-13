@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 struct ChatView: View {
     var chatManager: ChatManager
@@ -13,6 +14,7 @@ struct ChatView: View {
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
     @State private var showFileImporter = false
+    @State private var keyboardHeight: CGFloat = 0
     private let bottomAnchorID = "chatBottomAnchor"
 
     private var currentMessages: [ChatMessage] {
@@ -40,6 +42,17 @@ struct ChatView: View {
             case .failure(let error):
                 modelDownloader.error = "Import failed: \(error.localizedDescription)"
                 modelDownloader.log = "Import failed."
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            let overlap = keyboardOverlap(from: notification)
+            withAnimation(keyboardAnimation(for: notification)) {
+                keyboardHeight = overlap
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+            withAnimation(keyboardAnimation(for: notification)) {
+                keyboardHeight = 0
             }
         }
     }
@@ -376,7 +389,7 @@ struct ChatView: View {
             }
             .padding(.horizontal)
             .padding(.top, 8)
-            .padding(.bottom, 18 + (isCollapsed ? 0 : 28))
+            .padding(.bottom, (isCollapsed ? 10 : 24) + keyboardLift)
         }
         .background(
             Rectangle()
@@ -388,6 +401,34 @@ struct ChatView: View {
                 )
                 .ignoresSafeArea(edges: .bottom)
         )
+    }
+
+    private var safeAreaBottomInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first(where: { $0.isKeyWindow })?
+            .safeAreaInsets.bottom ?? 0
+    }
+
+    private var keyboardLift: CGFloat {
+        guard !isCollapsed else { return 0 }
+        return max(0, keyboardHeight - safeAreaBottomInset)
+    }
+
+    private func keyboardOverlap(from notification: Notification) -> CGFloat {
+        guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return 0
+        }
+        let screenHeight = UIScreen.main.bounds.height
+        return max(0, screenHeight - endFrame.minY)
+    }
+
+    private func keyboardAnimation(for notification: Notification) -> Animation {
+        if let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double {
+            return .easeOut(duration: duration)
+        }
+        return .easeOut(duration: 0.25)
     }
 
     private var chatPanelBackground: some View {
