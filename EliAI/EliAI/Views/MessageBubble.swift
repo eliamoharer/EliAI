@@ -344,7 +344,7 @@ private struct MathSegmentView: View {
                 textAlignment: .left,
                 fontSize: display ? 23 : 20,
                 labelMode: display ? .display : .text,
-                textColor: role == .user ? MTColor(Color.white) : MTColor(Color.primary)
+                textColor: role == .user ? UIColor.white : UIColor.label
             )
             .frame(minHeight: display ? 40 : 28)
         }
@@ -380,7 +380,7 @@ private struct LaTeXMathLabel: UIViewRepresentable {
     var textAlignment: MTTextAlignment = .left
     var fontSize: CGFloat = 30
     var labelMode: MTMathUILabelMode = .text
-    var textColor: MTColor = MTColor(Color.primary)
+    var textColor: MTColor = UIColor.label
     var insets: MTEdgeInsets = MTEdgeInsets()
 
     func makeUIView(context: Context) -> MTMathUILabel {
@@ -394,7 +394,6 @@ private struct LaTeXMathLabel: UIViewRepresentable {
     func updateUIView(_ view: MTMathUILabel, context: Context) {
         view.latex = equation
         let selectedFont = MTFontManager().font(withName: font.rawValue, size: fontSize)
-        selectedFont?.fallbackFont = UIFont.systemFont(ofSize: fontSize)
         view.font = selectedFont
         view.textAlignment = textAlignment
         view.labelMode = labelMode
@@ -405,9 +404,11 @@ private struct LaTeXMathLabel: UIViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: MTMathUILabel, context: Context) -> CGSize? {
         if let width = proposal.width, width.isFinite, width > 0 {
-            uiView.preferredMaxLayoutWidth = width
+            var measuringBounds = uiView.bounds
+            measuringBounds.size.width = width
+            uiView.bounds = measuringBounds
             let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-            return CGSize(width: width, height: max(24, size.height))
+            return CGSize(width: min(width, size.width), height: max(24, size.height))
         }
         return nil
     }
