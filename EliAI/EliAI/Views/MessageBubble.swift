@@ -446,6 +446,14 @@ struct MessageBubble: View {
         var value = text
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\\n", with: "\n")
+
+        // Horizontal rules are poorly represented by AttributedString markdown in this view.
+        value = value.replacingOccurrences(
+            of: #"(?m)^\s*---+\s*$"#,
+            with: "",
+            options: .regularExpression
+        )
+
         value = value.replacingOccurrences(
             of: #"(?<!\n)\s+(#{1,6}\s)"#,
             with: "\n$1",
@@ -456,6 +464,20 @@ struct MessageBubble: View {
             with: "$1 $2",
             options: .regularExpression
         )
+
+        // Use bold lines instead of heading blocks for predictable rendering in Text(AttributedString).
+        value = value.replacingOccurrences(
+            of: #"(?m)^\s*#{1,6}\s*(.+?)\s*$"#,
+            with: "**$1**",
+            options: .regularExpression
+        )
+
+        value = value.replacingOccurrences(
+            of: #"(?m)^(\*\*.+\*\*)\n(?!\n|[-*+]\s|\d+\.\s)"#,
+            with: "$1\n\n",
+            options: .regularExpression
+        )
+
         value = value.replacingOccurrences(
             of: #"(?<!\n)\s+(\d+\.\s)"#,
             with: "\n$1",
@@ -474,7 +496,7 @@ struct MessageBubble: View {
 
         let normalized = normalizedLines.joined(separator: "\n")
         return normalized.replacingOccurrences(
-            of: #"(?<!\n)\n(?!\n|[-*+]\s|\d+\.\s|#{1,6}\s)"#,
+            of: #"(?<!\n)\n(?!\n|[-*+]\s|\d+\.\s)"#,
             with: "\n\n",
             options: .regularExpression
         )
@@ -482,6 +504,14 @@ struct MessageBubble: View {
 
     private func normalizeInlineListSyntax(in line: String) -> String {
         var output = line
+        let trimmed = output.trimmingCharacters(in: .whitespaces)
+
+        if trimmed.isEmpty {
+            return output
+        }
+        if trimmed == "---" || trimmed.hasPrefix("#") {
+            return output
+        }
 
         if let range = output.range(of: ": - ") {
             let prefix = String(output[..<range.lowerBound]) + ":"
@@ -522,11 +552,6 @@ struct MessageBubble: View {
             output = output.replacingOccurrences(
                 of: #"\.\s*\*\*([^*\n]{2,})\*\*\s*-\s*"#,
                 with: ".\n- **$1** - ",
-                options: .regularExpression
-            )
-            output = output.replacingOccurrences(
-                of: #"\s+-(?=[A-Za-z])"#,
-                with: "\n- ",
                 options: .regularExpression
             )
             output = output.replacingOccurrences(

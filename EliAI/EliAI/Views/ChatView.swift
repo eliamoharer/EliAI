@@ -51,6 +51,12 @@ struct ChatView: View {
                 keyboardHeight = overlap
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+            let overlap = keyboardOverlap(from: notification)
+            withAnimation(keyboardAnimation(for: notification)) {
+                keyboardHeight = overlap
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
             withAnimation(keyboardAnimation(for: notification)) {
                 keyboardHeight = 0
@@ -412,22 +418,29 @@ struct ChatView: View {
             return 12
         }
         if keyboardLift > 0 {
-            return keyboardLift + 8
+            return keyboardLift + 16
         }
         return 30
     }
 
-    private var safeAreaBottomInset: CGFloat {
+    private var keyWindow: UIWindow? {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
             .flatMap { $0.windows }
-            .first(where: { $0.isKeyWindow })?
-            .safeAreaInsets.bottom ?? 0
+            .first(where: { $0.isKeyWindow })
+    }
+
+    private var safeAreaBottomInset: CGFloat {
+        keyWindow?.safeAreaInsets.bottom ?? 0
     }
 
     private func keyboardOverlap(from notification: Notification) -> CGFloat {
         guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
             return 0
+        }
+        if let window = keyWindow {
+            let frameInWindow = window.convert(endFrame, from: nil)
+            return max(0, window.bounds.maxY - frameInWindow.minY)
         }
         let screenHeight = UIScreen.main.bounds.height
         return max(0, screenHeight - endFrame.minY)
