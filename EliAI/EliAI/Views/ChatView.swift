@@ -29,6 +29,7 @@ struct ChatView: View {
             inputSection
         }
         .background(chatPanelBackground)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .fileImporter(
             isPresented: $showFileImporter,
             allowedContentTypes: [UTType(filenameExtension: "gguf") ?? .data],
@@ -58,13 +59,30 @@ struct ChatView: View {
     }
 
     private var topGrabber: some View {
-        Capsule()
-            .fill(Color.primary.opacity(0.22))
-            .frame(width: 42, height: 5)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-            .opacity(isCollapsed ? 0 : 1)
-            .frame(height: isCollapsed ? 0 : nil)
+        Group {
+            if isCollapsed {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .frame(width: 96, height: 26)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.white.opacity(0.35), lineWidth: 0.7)
+                        )
+                    Capsule()
+                        .fill(Color.primary.opacity(0.26))
+                        .frame(width: 44, height: 5)
+                }
+                .padding(.top, 4)
+                .padding(.bottom, 4)
+            } else {
+                Capsule()
+                    .fill(Color.primary.opacity(0.22))
+                    .frame(width: 42, height: 5)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
+            }
+        }
     }
 
     private var headerSection: some View {
@@ -389,7 +407,7 @@ struct ChatView: View {
             }
             .padding(.horizontal)
             .padding(.top, 8)
-            .padding(.bottom, (isCollapsed ? 10 : 24) + keyboardLift)
+            .padding(.bottom, (isCollapsed ? 12 : 34) + keyboardLift)
         }
         .background(
             Rectangle()
@@ -403,17 +421,9 @@ struct ChatView: View {
         )
     }
 
-    private var safeAreaBottomInset: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first(where: { $0.isKeyWindow })?
-            .safeAreaInsets.bottom ?? 0
-    }
-
     private var keyboardLift: CGFloat {
         guard !isCollapsed else { return 0 }
-        return max(0, keyboardHeight - safeAreaBottomInset)
+        return max(0, keyboardHeight)
     }
 
     private func keyboardOverlap(from notification: Notification) -> CGFloat {

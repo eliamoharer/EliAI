@@ -185,9 +185,7 @@ struct MessageBubble: View {
     private func parseContentSegments(from text: String) -> [MessageSegment] {
         let delimiters = [
             MathDelimiter(open: "$$", close: "$$", display: true),
-            MathDelimiter(open: "\\[", close: "\\]", display: true),
-            MathDelimiter(open: "\\(", close: "\\)", display: false),
-            MathDelimiter(open: "$", close: "$", display: false)
+            MathDelimiter(open: "\\[", close: "\\]", display: true)
         ]
 
         guard !text.isEmpty else {
@@ -442,6 +440,11 @@ struct MessageBubble: View {
         value = value.replacingOccurrences(
             of: #"(?<!\n)\s+(\d+\.\s)"#,
             with: "\n$1",
+            options: .regularExpression
+        )
+        value = value.replacingOccurrences(
+            of: #"(?<!\n)\n(?!\n|[-*+]\s|\d+\.\s|#{1,6}\s)"#,
+            with: "  \n",
             options: .regularExpression
         )
         value = value.replacingOccurrences(
