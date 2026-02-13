@@ -232,7 +232,12 @@ struct ChatView: View {
                     }
 
                     ForEach(currentMessages) { message in
-                        MessageBubble(message: message)
+                        MessageBubble(
+                            message: message,
+                            isStreaming: llmEngine.isGenerating &&
+                                message.id == currentMessages.last?.id &&
+                                message.role == .assistant
+                        )
                             .id(message.id)
                     }
 

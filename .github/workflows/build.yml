@@ -87,7 +87,9 @@ jobs:
       - name: Cache Build Artifacts (DerivedData)
         uses: actions/cache@v4
         with:
-          path: build
+          path: |
+            build
+            ~/Library/Developer/Xcode/DerivedData
           key: ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-${{ steps.xcode_info.outputs.xcode_build }}-deriveddata-${{ hashFiles('project.yml', 'Package.swift') }}
           restore-keys: |
             ${{ runner.os }}-xcode-${{ steps.xcode_info.outputs.xcode_version }}-${{ steps.xcode_info.outputs.xcode_build }}-deriveddata-
@@ -122,6 +124,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -configuration Release \
             -derivedDataPath build \
+            IDECustomDerivedDataLocation=$PWD/build \
             -clonedSourcePackagesDirPath .spm \
             -disableAutomaticPackageResolution \
             -parallelizeTargets \

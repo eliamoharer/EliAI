@@ -53,8 +53,9 @@ struct ContentView: View {
             .ignoresSafeArea()
 
             GeometryReader { geometry in
-                let peekHeight: CGFloat = 88 + geometry.safeAreaInsets.bottom
-                let collapsedOffsetBase = max(0, geometry.size.height - peekHeight)
+                let fullHeight = geometry.size.height + geometry.safeAreaInsets.bottom
+                let peekVisibleHeight: CGFloat = 52
+                let collapsedOffsetBase = max(0, fullHeight - peekVisibleHeight)
                 let panelOffset = isChatVisible
                     ? max(0, dragOffset)
                     : max(0, collapsedOffsetBase + min(0, dragOffset))
@@ -67,7 +68,7 @@ struct ContentView: View {
                         modelDownloader: modelDownloader,
                         onShowSettings: { showingSettings = true }
                     )
-                    .frame(height: geometry.size.height)
+                    .frame(height: fullHeight)
                     .clipShape(RoundedRectangle(cornerRadius: isChatVisible ? 0 : 28, style: .continuous))
                     .shadow(color: .black.opacity(0.16), radius: 22, x: 0, y: -5)
                     .offset(y: panelOffset)
@@ -115,6 +116,7 @@ struct ContentView: View {
                     }
                 }
             }
+            .ignoresSafeArea(edges: .bottom)
             .sheet(isPresented: $showingNewChatDialog) {
                 NewChatDialog(isPresented: $showingNewChatDialog) { name in
                     chatManager.createNewSession(title: name)

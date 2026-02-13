@@ -30,6 +30,7 @@ xcodebuild build \
     -destination 'generic/platform=iOS' \
     -configuration Release \
     -derivedDataPath "${BUILD_DIR}" \
+    IDECustomDerivedDataLocation="$(pwd)/${BUILD_DIR}" \
     -clonedSourcePackagesDirPath .spm \
     -parallelizeTargets \
     -jobs 4 \

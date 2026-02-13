@@ -20,12 +20,20 @@ private struct MathDelimiter {
 
 struct MessageBubble: View {
     let message: ChatMessage
+    let isStreaming: Bool
     @State private var isThinkingVisible = false
+
+    init(message: ChatMessage, isStreaming: Bool = false) {
+        self.message = message
+        self.isStreaming = isStreaming
+    }
 
     var body: some View {
         let parsed = parseThinkingSections(from: message.content)
         let visibleText = message.role == .assistant ? parsed.visible : message.content
-        let segments = parseContentSegments(from: visibleText)
+        let segments = isStreaming
+            ? [MessageSegment(kind: .markdown(visibleText))]
+            : parseContentSegments(from: visibleText)
 
         HStack(alignment: .bottom, spacing: 8) {
             if message.role == .user {
@@ -406,11 +414,44 @@ struct MessageBubble: View {
     }
 
     private func attributedMessageText(from text: String) -> AttributedString {
-        let normalized = text.isEmpty ? " " : text
-        if let attributed = try? AttributedString(markdown: normalized) {
+        let normalized = normalizedMarkdown(text.isEmpty ? " " : text)
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .full,
+            failurePolicy: .returnPartiallyParsedIfPossible
+        )
+        if let attributed = try? AttributedString(markdown: normalized, options: options) {
             return attributed
         }
         return AttributedString(normalized)
+    }
+
+    private func normalizedMarkdown(_ text: String) -> String {
+        var value = text
+        value = value.replacingOccurrences(
+            of: #"(?<!\n)\s+(#{1,6}\s)"#,
+            with: "\n$1",
+            options: .regularExpression
+        )
+        value = value.replacingOccurrences(
+            of: #"(?<!\n)\s+(\d+\.\s)"#,
+            with: "\n$1",
+            options: .regularExpression
+        )
+
+        let lines = value.split(separator: "\n", omittingEmptySubsequences: false)
+        let normalizedLines = lines.map { rawLine -> String in
+            let line = String(rawLine)
+            guard let range = line.range(of: ": - ") else {
+                return line
+            }
+
+            let prefix = String(line[..<range.lowerBound]) + ":"
+            let listPart = String(line[range.upperBound...])
+                .replacingOccurrences(of: " - ", with: "\n- ")
+            return prefix + "\n- " + listPart
+        }
+
+        return normalizedLines.joined(separator: "\n")
     }
 }
 
