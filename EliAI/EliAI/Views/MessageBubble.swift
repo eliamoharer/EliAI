@@ -323,9 +323,7 @@ struct MessageBubble: View {
             MathDelimiter(open: "\\begin{multline*}", close: "\\end{multline*}", display: true),
             MathDelimiter(open: "\\begin{multline}", close: "\\end{multline}", display: true),
             MathDelimiter(open: "$$", close: "$$", display: true),
-            MathDelimiter(open: "\\[", close: "\\]", display: true),
-            MathDelimiter(open: "\\(", close: "\\)", display: false),
-            MathDelimiter(open: "$", close: "$", display: false)
+            MathDelimiter(open: "\\[", close: "\\]", display: true)
         ]
 
         var segments: [MessageSegment] = []
@@ -624,6 +622,11 @@ struct MessageBubble: View {
             with: "\n$1",
             options: .regularExpression
         )
+        value = value.replacingOccurrences(
+            of: #"(?m)^(\s*)-(?!-)(\S)"#,
+            with: "$1- $2",
+            options: .regularExpression
+        )
 
         let lines = value.split(separator: "\n", omittingEmptySubsequences: false)
         let normalizedLines = lines.map { rawLine -> String in
@@ -687,14 +690,23 @@ struct MessageBubble: View {
     }
 }
 
+private func sanitizeLatexForSwiftMath(_ latex: String) -> String {
+    var value = latex
+    value = value.replacingOccurrences(of: "\\dfrac", with: "\\frac")
+    value = value.replacingOccurrences(of: "\\tfrac", with: "\\frac")
+    value = value.replacingOccurrences(of: "\\displaystyle", with: "")
+    return value
+}
+
 private struct MathSegmentView: View {
     let latex: String
     let display: Bool
     let role: ChatMessage.Role
 
     var body: some View {
+        let preparedLatex = sanitizeLatexForSwiftMath(latex)
         let mathLabel = LaTeXMathLabel(
-            equation: latex,
+            equation: preparedLatex,
             font: .latinModernFont,
             textAlignment: .left,
             fontSize: display ? 23 : 20,
