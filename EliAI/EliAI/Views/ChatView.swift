@@ -290,7 +290,7 @@ struct ChatView: View {
                     Button(action: sendMessage) {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 32))
-                            .foregroundColor(inputText.isEmpty ? .gray : .blue)
+                            .foregroundColor(.blue.opacity(inputText.isEmpty ? 0.4 : 1.0))
                     }
                     .padding(5)
                     .background {
@@ -430,25 +430,61 @@ struct ChatView: View {
 
     @ViewBuilder
     private func liquidRoundedBackground(cornerRadius: CGFloat) -> some View {
-        if #available(iOS 26.0, *) {
-            Color.clear
-                .glassEffect()
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        } else {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
-        }
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.ultraThinMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.32),
+                                Color.white.opacity(0.10),
+                                Color.white.opacity(0.02)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.48), Color.white.opacity(0.12)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.9
+                    )
+            )
+            .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
     }
 
     @ViewBuilder
     private func liquidCircleBackground() -> some View {
-        if #available(iOS 26.0, *) {
-            Color.clear
-                .glassEffect()
-                .clipShape(Circle())
-        } else {
-            Circle()
-                .fill(.ultraThinMaterial)
-        }
+        Circle()
+            .fill(.ultraThinMaterial)
+            .overlay(
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.35), Color.white.opacity(0.10)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                Circle()
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.55), Color.white.opacity(0.12)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 0.9
+                    )
+            )
+            .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
     }
 }

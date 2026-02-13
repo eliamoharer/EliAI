@@ -89,50 +89,72 @@ class LLMEngine {
         isGenerating = true
         generationError = nil
 
+        guard let llm else {
+            isGenerating = false
+            return AsyncStream { continuation in
+                continuation.yield("Error: No model loaded.")
+                continuation.finish()
+            }
+        }
+
+        let profile = activeProfile
+        let clippedMessages = trimmedHistory(messages)
+        let prompt = profile.formatPrompt(messages: clippedMessages, systemPrompt: systemPromptForCurrentStyle(override: systemPrompt))
+        applySamplingPreset(profile.sampling, to: llm)
+
+        AppLogger.debug("Starting generation with profile \(profile.displayName).", category: .inference)
+
         let (stream, continuation) = AsyncStream<String>.makeStream()
 
         generationTask = Task(priority: .userInitiated) { [weak self] in
-            guard let self else {
-                continuation.yield("Error: LLM engine is unavailable.")
-                continuation.finish()
-                return
-            }
-
+            var emittedText = ""
             defer {
-                self.isGenerating = false
-                self.generationTask = nil
+                Task { @MainActor [weak self] in
+                    self?.isGenerating = false
+                    self?.generationTask = nil
+                }
                 continuation.finish()
-            }
-
-            guard let llm = self.llm else {
-                continuation.yield("Error: No model loaded.")
-                return
             }
 
             if Task.isCancelled {
                 return
             }
 
-            let profile = self.activeProfile
-            let clippedMessages = self.trimmedHistory(messages)
-            let prompt = profile.formatPrompt(messages: clippedMessages, systemPrompt: self.systemPromptForCurrentStyle(override: systemPrompt))
-            self.applySamplingPreset(profile.sampling, to: llm)
-
-            AppLogger.debug("Starting generation with profile \(profile.displayName).", category: .inference)
-
-            let rawOutput = await llm.getCompletion(from: prompt)
-            var output = String(describing: rawOutput)
-            if output.hasPrefix("Optional(\""), output.hasSuffix("\")"), output.count >= 12 {
-                output = String(output.dropFirst(10).dropLast(2))
+            let sanitize: (String) -> String = { text in
+                text.replacingOccurrences(of: "<|im_end|>", with: "")
             }
-            if !Task.isCancelled {
-                let cleaned = output.replacingOccurrences(of: "<|im_end|>", with: "")
-                for chunk in self.streamingChunks(from: cleaned) {
-                    if Task.isCancelled {
-                        return
+
+            let finalOutput = await llm.getCompletion(from: prompt, stopSequence: "<|im_end|>") { partial in
+                if Task.isCancelled {
+                    return false
+                }
+
+                let cleanedPartial = sanitize(partial)
+                guard cleanedPartial.hasPrefix(emittedText) else {
+                    return true
+                }
+
+                let delta = String(cleanedPartial.dropFirst(emittedText.count))
+                if !delta.isEmpty {
+                    continuation.yield(delta)
+                    emittedText = cleanedPartial
+                }
+                return true
+            }
+
+            if Task.isCancelled {
+                return
+            }
+
+            if let finalOutput {
+                let cleanedFinal = sanitize(finalOutput)
+                if cleanedFinal.hasPrefix(emittedText) {
+                    let tail = String(cleanedFinal.dropFirst(emittedText.count))
+                    if !tail.isEmpty {
+                        continuation.yield(tail)
                     }
-                    continuation.yield(chunk)
-                    try? await Task.sleep(nanoseconds: 15_000_000)
+                } else if emittedText.isEmpty && !cleanedFinal.isEmpty {
+                    continuation.yield(cleanedFinal)
                 }
             }
         }
@@ -194,28 +216,5 @@ class LLMEngine {
         default:
             return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
         }
-    }
-
-    private func streamingChunks(from text: String) -> [String] {
-        guard !text.isEmpty else { return [] }
-
-        var chunks: [String] = []
-        var current = ""
-        let breakCharacters = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ",.!?;:)]}"))
-
-        for scalar in text.unicodeScalars {
-            current.unicodeScalars.append(scalar)
-
-            if breakCharacters.contains(scalar) || current.count >= 12 {
-                chunks.append(current)
-                current = ""
-            }
-        }
-
-        if !current.isEmpty {
-            chunks.append(current)
-        }
-
-        return chunks
     }
 }

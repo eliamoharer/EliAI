@@ -50,7 +50,7 @@ struct ContentView: View {
                         onShowSettings: { showingSettings = true }
                     )
                     .frame(height: geometry.size.height)
-                    .background(Color.white)
+                    .background(.ultraThinMaterial)
                     .clipShape(RoundedRectangle(cornerRadius: isChatVisible ? 0 : 30, style: .continuous))
                     .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: -5)
                 }
