@@ -427,9 +427,16 @@ struct MessageBubble: View {
 
     private func normalizedMarkdown(_ text: String) -> String {
         var value = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
         value = value.replacingOccurrences(
             of: #"(?<!\n)\s+(#{1,6}\s)"#,
             with: "\n$1",
+            options: .regularExpression
+        )
+        value = value.replacingOccurrences(
+            of: #"(?m)^(#{1,6})([^ #])"#,
+            with: "$1 $2",
             options: .regularExpression
         )
         value = value.replacingOccurrences(
@@ -437,21 +444,45 @@ struct MessageBubble: View {
             with: "\n$1",
             options: .regularExpression
         )
-
         let lines = value.split(separator: "\n", omittingEmptySubsequences: false)
         let normalizedLines = lines.map { rawLine -> String in
             let line = String(rawLine)
-            guard let range = line.range(of: ": - ") else {
-                return line
-            }
-
-            let prefix = String(line[..<range.lowerBound]) + ":"
-            let listPart = String(line[range.upperBound...])
-                .replacingOccurrences(of: " - ", with: "\n- ")
-            return prefix + "\n- " + listPart
+            return normalizeInlineListSyntax(in: line)
         }
 
         return normalizedLines.joined(separator: "\n")
+    }
+
+    private func normalizeInlineListSyntax(in line: String) -> String {
+        var output = line
+
+        if let range = output.range(of: ": - ") {
+            let prefix = String(output[..<range.lowerBound]) + ":"
+            let listPart = String(output[range.upperBound...])
+                .replacingOccurrences(of: " - ", with: "\n- ")
+            output = prefix + "\n- " + listPart
+        }
+
+        let looksLikeInlineList = output.contains(" - **") ||
+            output.contains(" - `") ||
+            output.contains(" - [") ||
+            output.contains(" - (") ||
+            output.trimmingCharacters(in: .whitespaces).hasPrefix("#")
+
+        if looksLikeInlineList {
+            output = output.replacingOccurrences(
+                of: #"\s+-(?=[A-Za-z])"#,
+                with: "\n- ",
+                options: .regularExpression
+            )
+            output = output.replacingOccurrences(
+                of: #"\s+-\s+(?=(\*\*|`|\[|\(|[A-Za-z0-9]))"#,
+                with: "\n- ",
+                options: .regularExpression
+            )
+        }
+
+        return output
     }
 }
 

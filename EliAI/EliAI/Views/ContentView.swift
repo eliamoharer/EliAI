@@ -54,10 +54,11 @@ struct ContentView: View {
 
             GeometryReader { geometry in
                 let fullHeight = geometry.size.height + geometry.safeAreaInsets.bottom
-                let peekVisibleHeight: CGFloat = 52
+                let expandedTopOffset: CGFloat = 44
+                let peekVisibleHeight: CGFloat = 120
                 let collapsedOffsetBase = max(0, fullHeight - peekVisibleHeight)
                 let panelOffset = isChatVisible
-                    ? max(0, dragOffset)
+                    ? expandedTopOffset + max(0, dragOffset)
                     : max(0, collapsedOffsetBase + min(0, dragOffset))
 
                 ZStack(alignment: .bottom) {
@@ -66,7 +67,8 @@ struct ContentView: View {
                         llmEngine: llmEngine,
                         agentManager: agentManager,
                         modelDownloader: modelDownloader,
-                        onShowSettings: { showingSettings = true }
+                        onShowSettings: { showingSettings = true },
+                        isCollapsed: !isChatVisible
                     )
                     .frame(height: fullHeight)
                     .clipShape(RoundedRectangle(cornerRadius: isChatVisible ? 0 : 28, style: .continuous))

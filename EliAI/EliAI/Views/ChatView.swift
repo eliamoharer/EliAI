@@ -7,6 +7,7 @@ struct ChatView: View {
     var agentManager: AgentManager
     var modelDownloader: ModelDownloader
     var onShowSettings: () -> Void = {}
+    var isCollapsed: Bool = false
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var inputText = ""
@@ -49,6 +50,8 @@ struct ChatView: View {
             .frame(width: 42, height: 5)
             .padding(.top, 8)
             .padding(.bottom, 6)
+            .opacity(isCollapsed ? 0 : 1)
+            .frame(height: isCollapsed ? 0 : nil)
     }
 
     private var headerSection: some View {
@@ -59,7 +62,8 @@ struct ChatView: View {
             Spacer()
             headerTrailing
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.vertical, isCollapsed ? 10 : 16)
     }
 
     @ViewBuilder
@@ -372,7 +376,7 @@ struct ChatView: View {
             }
             .padding(.horizontal)
             .padding(.top, 8)
-            .padding(.bottom, 12)
+            .padding(.bottom, 18 + (isCollapsed ? 0 : 28))
         }
         .background(
             Rectangle()
