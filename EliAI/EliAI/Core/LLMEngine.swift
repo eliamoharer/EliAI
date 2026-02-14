@@ -22,6 +22,7 @@ class LLMEngine {
     var modelPath: String?
     var loadError: String?
     var generationError: String?
+    var lastGenerationWasCancelled = false
     var activeProfile: ModelProfile = .generic
     var modelWarnings: [String] = []
 
@@ -92,6 +93,7 @@ class LLMEngine {
         generationTask?.cancel()
         isGenerating = true
         generationError = nil
+        lastGenerationWasCancelled = false
 
         guard let llm else {
             isGenerating = false
@@ -120,6 +122,9 @@ class LLMEngine {
             }
 
             if Task.isCancelled {
+                await MainActor.run { [weak self] in
+                    self?.lastGenerationWasCancelled = true
+                }
                 return
             }
 
@@ -141,6 +146,9 @@ class LLMEngine {
             llm.update = { _ in }
 
             if Task.isCancelled {
+                await MainActor.run { [weak self] in
+                    self?.lastGenerationWasCancelled = true
+                }
                 return
             }
 
@@ -175,6 +183,8 @@ class LLMEngine {
         generationTask?.cancel()
         generationTask = nil
         isGenerating = false
+        generationError = nil
+        lastGenerationWasCancelled = true
     }
 
     func unloadModel() {

@@ -23,6 +23,35 @@ struct ChatView: View {
         chatManager.currentSession?.messages ?? []
     }
 
+    private var canSendMessage: Bool {
+        let hasMeaningfulInput = !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasMeaningfulInput &&
+            llmEngine.isLoaded &&
+            !llmEngine.isGenerating &&
+            !llmEngine.isLoadingModel &&
+            !isAgentLoopRunning
+    }
+
+    private var canStopGeneration: Bool {
+        llmEngine.isGenerating || isAgentLoopRunning
+    }
+
+    private var composerButtonEnabled: Bool {
+        canStopGeneration || canSendMessage
+    }
+
+    private var canRegenerateLastReply: Bool {
+        guard let messages = chatManager.currentSession?.messages else {
+            return false
+        }
+
+        return llmEngine.isLoaded &&
+            !llmEngine.isGenerating &&
+            !llmEngine.isLoadingModel &&
+            !isAgentLoopRunning &&
+            messages.contains(where: { $0.role == .user })
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             topGrabber
@@ -166,6 +195,13 @@ struct ChatView: View {
                 Label("New Chat", systemImage: "plus.message")
             }
 
+            Button {
+                regenerateLastReply()
+            } label: {
+                Label("Regenerate Last Reply", systemImage: "arrow.clockwise")
+            }
+            .disabled(!canRegenerateLastReply)
+
             Button(role: .destructive) {
                 llmEngine.stopGeneration()
                 chatManager.clearCurrentSession()
@@ -276,10 +312,15 @@ struct ChatView: View {
             .onTapGesture {
                 isInputFocused = false
             }
+            .onAppear {
+                DispatchQueue.main.async {
+                    scrollToBottomStabilized(proxy: proxy, animated: false)
+                }
+            }
             .onChange(of: chatManager.currentSession?.messages.count) { _, _ in
                 scrollToBottomStabilized(proxy: proxy, animated: false)
             }
-            .onChange(of: llmEngine.isGenerating) { _, isGenerating in
+            .onChange(of: llmEngine.isGenerating) { _, _ in
                 scrollToBottomStabilized(proxy: proxy, animated: false)
             }
             .onChange(of: chatManager.currentSession?.messages.last?.content) { _, _ in
@@ -368,10 +409,14 @@ struct ChatView: View {
                     .lineLimit(1 ... 6)
                     .disabled(!llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel || isAgentLoopRunning)
 
-                Button(action: sendMessage) {
-                    Image(systemName: "arrow.up.circle.fill")
+                Button(action: handleComposerPrimaryAction) {
+                    Image(systemName: canStopGeneration ? "stop.circle.fill" : "arrow.up.circle.fill")
                         .font(.system(size: 32))
-                        .foregroundColor(.blue.opacity(inputText.isEmpty ? 0.4 : 1.0))
+                        .foregroundColor(
+                            canStopGeneration
+                                ? Color.red.opacity(0.92)
+                                : Color.blue.opacity(canSendMessage ? 1.0 : 0.4)
+                        )
                 }
                 .padding(5)
                 .background {
@@ -379,7 +424,7 @@ struct ChatView: View {
                 }
                 .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 0.8))
                 .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
-                .disabled(inputText.isEmpty || !llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel || isAgentLoopRunning)
+                .disabled(!composerButtonEnabled)
             }
             .padding(.horizontal)
             .padding(.top, 8)
@@ -424,16 +469,46 @@ struct ChatView: View {
     }
 
     private func sendMessage() {
-        guard !inputText.isEmpty, !isAgentLoopRunning else { return }
+        let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedInput.isEmpty, !isAgentLoopRunning else { return }
         AppLogger.debug("User message submitted.", category: .ui)
 
         if chatManager.currentSession == nil {
             chatManager.createNewSession()
         }
 
-        let userMessage = ChatMessage(role: .user, content: inputText)
+        let userMessage = ChatMessage(role: .user, content: trimmedInput)
         chatManager.addMessage(userMessage)
         inputText = ""
+        scrollRequestID &+= 1
+        isAgentLoopRunning = true
+
+        Task {
+            await runAgentLoop()
+            await MainActor.run {
+                isAgentLoopRunning = false
+            }
+        }
+    }
+
+    private func handleComposerPrimaryAction() {
+        if canStopGeneration {
+            llmEngine.stopGeneration()
+            return
+        }
+        sendMessage()
+    }
+
+    private func regenerateLastReply() {
+        guard canRegenerateLastReply else { return }
+        guard let session = chatManager.currentSession,
+              let lastUserIndex = session.messages.lastIndex(where: { $0.role == .user }) else {
+            return
+        }
+
+        AppLogger.info("Regenerating assistant reply from last user prompt.", category: .ui)
+        llmEngine.stopGeneration()
+        chatManager.trimCurrentSession(upToIncluding: lastUserIndex)
         scrollRequestID &+= 1
         isAgentLoopRunning = true
 
@@ -449,6 +524,7 @@ struct ChatView: View {
         var keepGenerating = true
         var steps = 0
         let maxSteps = 4
+        var didRetryEmptyGeneration = false
 
         while keepGenerating && steps < maxSteps {
             steps += 1
@@ -469,20 +545,41 @@ struct ChatView: View {
                 }
             }
 
-            await MainActor.run {
-                assistantMessage.content = fullResponse
-                chatManager.updateLastMessage(assistantMessage)
-                if fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    let fallbackMessage = llmEngine.generationError?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                        ? (llmEngine.generationError ?? "I couldn't generate a response. Please try again.")
-                        : "I couldn't generate a response. Please try again."
-                    chatManager.updateLastMessage(
-                        ChatMessage(
-                            id: assistantMessage.id,
-                            role: .assistant,
-                            content: fallbackMessage
-                        )
+            if fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if llmEngine.lastGenerationWasCancelled {
+                    await MainActor.run {
+                        AppLogger.debug("Generation ended with cancellation; removing empty assistant placeholder.", category: .inference)
+                        chatManager.removeMessage(id: assistantMessage.id)
+                    }
+                    break
+                }
+
+                if !didRetryEmptyGeneration {
+                    didRetryEmptyGeneration = true
+                    await MainActor.run {
+                        chatManager.removeMessage(id: assistantMessage.id)
+                    }
+                    AppLogger.warning("Empty generation detected; retrying once automatically.", category: .inference)
+                    keepGenerating = true
+                    continue
+                }
+
+                let fallbackMessage = llmEngine.generationError?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? (llmEngine.generationError ?? "I couldn't generate a response. Please try again.")
+                    : "I couldn't generate a response. Please try again."
+
+                await MainActor.run {
+                    AppLogger.error(
+                        "Generation produced empty output after retry. error=\(llmEngine.generationError ?? "nil")",
+                        category: .inference
                     )
+                    assistantMessage.content = fallbackMessage
+                    chatManager.updateLastMessage(assistantMessage)
+                }
+            } else {
+                await MainActor.run {
+                    assistantMessage.content = fullResponse
+                    chatManager.updateLastMessage(assistantMessage)
                 }
             }
 

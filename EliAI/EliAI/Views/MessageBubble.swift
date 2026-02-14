@@ -138,6 +138,27 @@ struct MessageBubble: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.white.opacity(message.role == .user ? 0.22 : 0.25), lineWidth: 0.7)
         )
+        .contextMenu {
+            let parsed = parseThinkingSections(from: message.content)
+            let visible = parsed.visible.trimmingCharacters(in: .whitespacesAndNewlines)
+            let thinking = parsed.thinking.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !visible.isEmpty {
+                Button("Copy Answer") {
+                    UIPasteboard.general.string = visible
+                }
+            }
+
+            if !thinking.isEmpty {
+                Button("Copy Thinking") {
+                    UIPasteboard.general.string = thinking
+                }
+            }
+
+            Button("Copy Raw Source") {
+                UIPasteboard.general.string = message.content
+            }
+        }
     }
 
     @ViewBuilder

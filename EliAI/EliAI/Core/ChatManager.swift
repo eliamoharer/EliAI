@@ -99,6 +99,25 @@ class ChatManager {
         saveSession(session)
     }
 
+    func trimCurrentSession(upToIncluding index: Int) {
+        guard var session = currentSession, !session.messages.isEmpty else { return }
+        guard index >= 0 else { return }
+
+        let clampedIndex = min(index, session.messages.count - 1)
+        let newMessages = Array(session.messages.prefix(clampedIndex + 1))
+        guard newMessages.count != session.messages.count else { return }
+
+        session.messages = newMessages
+        session.updatedAt = Date()
+        currentSession = session
+
+        if let existingIndex = sessions.firstIndex(where: { $0.id == session.id }) {
+            sessions[existingIndex] = session
+        }
+
+        saveSession(session)
+    }
+
     func clearCurrentSession() {
         guard var session = currentSession else { return }
         session.messages.removeAll()
