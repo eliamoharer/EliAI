@@ -57,12 +57,28 @@ final class MessageFormattingTests: XCTestCase {
         XCTAssertFalse(output.markdown.contains("$ x^2 + 1 $"))
     }
 
+    func testInlineMathExtractionSkipsPlainTextInsideDollars() {
+        let input = "Text with $ not actually math words $ should stay text."
+        let output = MessageFormatting.extractInlineMathPlaceholders(from: input)
+
+        XCTAssertEqual(output.tokens.count, 0)
+        XCTAssertEqual(output.markdown, input)
+    }
+
     func testNormalizeMarkdownFixesHeadingsAndListMarkers() {
         let input = "Here are examples: - **Flower** - A beautiful flower\n###Step 2"
         let normalized = MessageFormatting.normalizeMarkdown(input)
 
         XCTAssertTrue(normalized.contains(":\n- **Flower**"))
         XCTAssertTrue(normalized.contains("\n### Step 2"))
+    }
+
+    func testNormalizeMarkdownSplitsJammedListItems() {
+        let input = "Here are three simple ways: - **Practice gratitude** - **Connect with others**"
+        let normalized = MessageFormatting.normalizeMarkdown(input)
+
+        XCTAssertTrue(normalized.contains("ways:\n- **Practice gratitude**"))
+        XCTAssertTrue(normalized.contains("\n- **Connect with others**"))
     }
 
     func testNormalizeMarkdownPreservesSingleLineBreakAsHardBreak() {
@@ -77,5 +93,12 @@ final class MessageFormattingTests: XCTestCase {
         let normalized = MessageFormatting.normalizeMarkdown(input)
 
         XCTAssertTrue(normalized.contains("Line one\\\nLine two"))
+    }
+
+    func testNormalizeMarkdownPreservesDoubleNewlineParagraphBreak() {
+        let input = "Paragraph one\n\nParagraph two"
+        let normalized = MessageFormatting.normalizeMarkdown(input)
+
+        XCTAssertTrue(normalized.contains("Paragraph one\n\nParagraph two"))
     }
 }

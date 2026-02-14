@@ -547,22 +547,85 @@ private func sanitizeLatexForSwiftMath(_ latex: String) -> String {
     value = value.replacingOccurrences(of: "\\dfrac", with: "\\frac")
     value = value.replacingOccurrences(of: "\\tfrac", with: "\\frac")
     value = value.replacingOccurrences(of: "\\displaystyle", with: "")
-    value = value.replacingOccurrences(
-        of: #"\\boxed\s*\{([^{}]+)\}"#,
-        with: "$1",
-        options: .regularExpression
-    )
-    value = value.replacingOccurrences(
-        of: #"\\text\s*\{([^{}]+)\}"#,
-        with: "$1",
-        options: .regularExpression
-    )
-    value = value.replacingOccurrences(
-        of: #"\\mathrm\s*\{([^{}]+)\}"#,
-        with: "$1",
-        options: .regularExpression
-    )
+    value = unwrapMathCommand(named: "boxed", in: value)
+    value = unwrapMathCommand(named: "text", in: value)
+    value = unwrapMathCommand(named: "mathrm", in: value)
     return value
+}
+
+private func unwrapMathCommand(named command: String, in source: String) -> String {
+    let needle = "\\\(command)"
+    var output = ""
+    var cursor = source.startIndex
+
+    while let match = source[cursor...].range(of: needle) {
+        output += String(source[cursor..<match.lowerBound])
+        var search = match.upperBound
+        while search < source.endIndex, source[search].isWhitespace {
+            search = source.index(after: search)
+        }
+
+        guard search < source.endIndex, source[search] == "{" else {
+            output += needle
+            cursor = match.upperBound
+            continue
+        }
+
+        guard let close = matchingClosingBrace(in: source, openingBraceAt: search) else {
+            output += String(source[match.lowerBound...])
+            cursor = source.endIndex
+            break
+        }
+
+        let innerStart = source.index(after: search)
+        output += String(source[innerStart..<close])
+        cursor = source.index(after: close)
+    }
+
+    if cursor < source.endIndex {
+        output += String(source[cursor...])
+    }
+    return output
+}
+
+private func matchingClosingBrace(in source: String, openingBraceAt openingIndex: String.Index) -> String.Index? {
+    var depth = 0
+    var index = openingIndex
+
+    while index < source.endIndex {
+        let character = source[index]
+        if character == "{" && !isEscapedCharacter(in: source, at: index) {
+            depth += 1
+        } else if character == "}" && !isEscapedCharacter(in: source, at: index) {
+            depth -= 1
+            if depth == 0 {
+                return index
+            }
+        }
+        index = source.index(after: index)
+    }
+    return nil
+}
+
+private func isEscapedCharacter(in source: String, at index: String.Index) -> Bool {
+    guard index > source.startIndex else {
+        return false
+    }
+
+    var slashCount = 0
+    var cursor = source.index(before: index)
+    while true {
+        if source[cursor] == "\\" {
+            slashCount += 1
+        } else {
+            break
+        }
+        if cursor == source.startIndex {
+            break
+        }
+        cursor = source.index(before: cursor)
+    }
+    return slashCount % 2 == 1
 }
 
 private struct MathSegmentView: View {
@@ -619,9 +682,12 @@ private struct MarkdownMathText: UIViewRepresentable {
         view.isEditable = false
         view.isScrollEnabled = false
         view.isSelectable = true
+        view.font = .systemFont(ofSize: 17)
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
+        view.textContainer.widthTracksTextView = true
         view.setContentHuggingPriority(.required, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.setContentCompressionResistancePriority(.required, for: .vertical)
         return view
     }
@@ -632,9 +698,8 @@ private struct MarkdownMathText: UIViewRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
-        guard let width = proposal.width, width.isFinite, width > 0 else {
-            return nil
-        }
+        let proposedWidth = proposal.width ?? UIScreen.main.bounds.width
+        let width = proposedWidth.isFinite && proposedWidth > 0 ? proposedWidth : UIScreen.main.bounds.width
         let measured = uiView.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
         return CGSize(width: width, height: ceil(measured.height))
     }
@@ -758,10 +823,13 @@ private struct MarkdownMathText: UIViewRepresentable {
 
         let measured = label.sizeThatFits(
             CGSize(
-                width: CGFloat.greatestFiniteMagnitude,
-                height: CGFloat.greatestFiniteMagnitude
+                width: 4096,
+                height: 4096
             )
         )
+        if !measured.width.isFinite || !measured.height.isFinite {
+            return renderFallbackInlineTextImage(latex: latex, color: color, fontSize: fontSize)
+        }
         let width = max(6, ceil(measured.width))
         let height = max(ceil(fontSize * 1.2), ceil(measured.height))
         let renderSize = CGSize(width: width, height: height)
@@ -778,6 +846,8 @@ private struct MarkdownMathText: UIViewRepresentable {
                 width: width,
                 height: measured.height
             )
+            label.setNeedsLayout()
+            label.layoutIfNeeded()
             label.layer.render(in: context.cgContext)
         }
     }
@@ -827,9 +897,12 @@ private struct MarkdownMathText: UIViewRepresentable {
         tokens: [InlineMathToken]
     ) {
         for token in tokens {
-            let whole = mutable.string as NSString
-            let range = whole.range(of: token.placeholder)
-            if range.location != NSNotFound {
+            while true {
+                let whole = mutable.string as NSString
+                let range = whole.range(of: token.placeholder)
+                if range.location == NSNotFound {
+                    break
+                }
                 mutable.replaceCharacters(in: range, with: token.latex)
             }
         }

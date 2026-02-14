@@ -233,31 +233,40 @@ enum MessageFormatting {
         if content.count > 120 {
             return false
         }
+        if looksLikeCurrencyAmount(content) {
+            return false
+        }
 
         let hasLatexCommand = content.contains("\\")
         let hasOperators = content.range(of: #"[=+\-*/^_<>]"#, options: .regularExpression) != nil
         let hasBrackets = content.contains("(") || content.contains(")") || content.contains("[") || content.contains("]")
+        let hasMathBraces = content.contains("{") || content.contains("}")
         let hasLetters = content.range(of: #"[A-Za-z]"#, options: .regularExpression) != nil
         let hasDigits = content.range(of: #"\d"#, options: .regularExpression) != nil
 
-        if hasLatexCommand || hasOperators || hasBrackets {
+        if hasLatexCommand || hasOperators || hasBrackets || hasMathBraces {
             return true
         }
 
         if hasDigits, !hasLetters {
             return false
         }
+        if hasDigits, hasLetters {
+            return true
+        }
 
         let words = content
             .split(whereSeparator: { $0.isWhitespace })
             .filter { !$0.isEmpty }
 
-        // Plain $...$ with longer prose in it is usually currency/text, not math.
+        // Plain $...$ with longer prose is usually text, not math.
         if words.count > 3 {
             return false
         }
-
-        return hasLetters
+        if words.count == 1 {
+            return hasLetters
+        }
+        return false
     }
 
     private static func preserveSingleLineBreaks(in value: String) -> String {
@@ -331,6 +340,13 @@ enum MessageFormatting {
         if line.allSatisfy({ $0 == "*" }) { return true }
         if line.allSatisfy({ $0 == "_" }) { return true }
         return false
+    }
+
+    private static func looksLikeCurrencyAmount(_ value: String) -> Bool {
+        value.range(
+            of: #"^\d{1,3}(,\d{3})*(\.\d{1,2})?$|^\d+(\.\d{1,2})?$"#,
+            options: .regularExpression
+        ) != nil
     }
 
     private static func isEscaped(_ text: String, at index: String.Index) -> Bool {
