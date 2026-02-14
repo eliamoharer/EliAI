@@ -15,6 +15,8 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
     @State private var showFileImporter = false
     @State private var keyboardOverlap: CGFloat = 0
+    @State private var scrollRequestID: Int = 0
+    @State private var isAgentLoopRunning = false
     private let bottomAnchorID = "chatBottomAnchor"
 
     private var currentMessages: [ChatMessage] {
@@ -275,18 +277,21 @@ struct ChatView: View {
                 isInputFocused = false
             }
             .onChange(of: chatManager.currentSession?.messages.count) { _, _ in
-                scrollToBottom(proxy: proxy)
+                scrollToBottomStabilized(proxy: proxy, animated: false)
             }
             .onChange(of: llmEngine.isGenerating) { _, isGenerating in
-                if isGenerating {
-                    scrollToBottom(proxy: proxy)
+                scrollToBottomStabilized(proxy: proxy, animated: false)
+            }
+            .onChange(of: chatManager.currentSession?.messages.last?.content) { _, _ in
+                if llmEngine.isGenerating {
+                    scrollToBottomStabilized(proxy: proxy, animated: false)
                 }
             }
-            .onChange(of: chatManager.currentSession?.messages.last?.id) { _, _ in
-                scrollToBottom(proxy: proxy)
-            }
             .onChange(of: chatManager.currentSession?.id) { _, _ in
-                scrollToBottom(proxy: proxy)
+                scrollToBottomStabilized(proxy: proxy, animated: false)
+            }
+            .onChange(of: scrollRequestID) { _, _ in
+                scrollToBottomStabilized(proxy: proxy, animated: true)
             }
         }
     }
@@ -361,7 +366,7 @@ struct ChatView: View {
                             .stroke(Color.white.opacity(0.35), lineWidth: 0.8)
                     )
                     .lineLimit(1 ... 6)
-                    .disabled(!llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel)
+                    .disabled(!llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel || isAgentLoopRunning)
 
                 Button(action: sendMessage) {
                     Image(systemName: "arrow.up.circle.fill")
@@ -374,7 +379,7 @@ struct ChatView: View {
                 }
                 .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 0.8))
                 .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
-                .disabled(inputText.isEmpty || !llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel)
+                .disabled(inputText.isEmpty || !llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel || isAgentLoopRunning)
             }
             .padding(.horizontal)
             .padding(.top, 8)
@@ -419,7 +424,7 @@ struct ChatView: View {
     }
 
     private func sendMessage() {
-        guard !inputText.isEmpty else { return }
+        guard !inputText.isEmpty, !isAgentLoopRunning else { return }
         AppLogger.debug("User message submitted.", category: .ui)
 
         if chatManager.currentSession == nil {
@@ -429,9 +434,14 @@ struct ChatView: View {
         let userMessage = ChatMessage(role: .user, content: inputText)
         chatManager.addMessage(userMessage)
         inputText = ""
+        scrollRequestID &+= 1
+        isAgentLoopRunning = true
 
         Task {
             await runAgentLoop()
+            await MainActor.run {
+                isAgentLoopRunning = false
+            }
         }
     }
 
@@ -463,7 +473,16 @@ struct ChatView: View {
                 assistantMessage.content = fullResponse
                 chatManager.updateLastMessage(assistantMessage)
                 if fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    chatManager.removeMessage(id: assistantMessage.id)
+                    let fallbackMessage = llmEngine.generationError?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                        ? (llmEngine.generationError ?? "I couldn't generate a response. Please try again.")
+                        : "I couldn't generate a response. Please try again."
+                    chatManager.updateLastMessage(
+                        ChatMessage(
+                            id: assistantMessage.id,
+                            role: .assistant,
+                            content: fallbackMessage
+                        )
+                    )
                 }
             }
 
@@ -494,6 +513,16 @@ struct ChatView: View {
             }
         } else {
             proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+        }
+    }
+
+    private func scrollToBottomStabilized(proxy: ScrollViewProxy, animated: Bool) {
+        scrollToBottom(proxy: proxy, animated: animated)
+        DispatchQueue.main.async {
+            scrollToBottom(proxy: proxy, animated: false)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            scrollToBottom(proxy: proxy, animated: false)
         }
     }
 
