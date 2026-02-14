@@ -245,7 +245,7 @@ enum MessageFormatting {
         }
 
         let hasLatexCommand = content.contains("\\")
-        let hasOperators = content.range(of: #"[=+\-*/^_<>]"#, options: .regularExpression) != nil
+        let hasOperators = content.range(of: #"[-=+\-*/^_<>]"#, options: .regularExpression) != nil
         let hasBrackets = content.contains("(") || content.contains(")") || content.contains("[") || content.contains("]")
         let hasMathBraces = content.contains("{") || content.contains("}")
         let hasLetters = content.range(of: #"[A-Za-z]"#, options: .regularExpression) != nil

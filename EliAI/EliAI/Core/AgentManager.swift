@@ -19,6 +19,8 @@ class AgentManager {
         let nsString = text as NSString
         let results = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
         
+        var toolOutputs: [String] = []
+
         for result in results {
             if result.numberOfRanges > 1 {
                 let range = result.range(at: 1)
@@ -32,12 +34,13 @@ class AgentManager {
                 if let data = cleanJson.data(using: .utf8),
                    let toolCall = try? JSONDecoder().decode(ToolCall.self, from: data) {
                     AppLogger.info("Tool call parsed: \(toolCall.name)", category: .agent)
-                    return await execute(toolCall)
+                    let output = await execute(toolCall)
+                    toolOutputs.append("<tool_result>\n\(output)\n</tool_result>")
                 }
             }
         }
         
-        return nil
+        return toolOutputs.isEmpty ? nil : toolOutputs.joined(separator: "\n\n")
     }
     
     private func execute(_ toolCall: ToolCall) async -> String {
@@ -80,9 +83,9 @@ class AgentManager {
                 let slug = safeSlug(from: title)
                 let content = """
                 # \(title)
-
+                
                 Due: \(due)
-
+                
                 \(details)
                 """
                 let path = "tasks/\(slug).md"

@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     var modelDownloader: ModelDownloader?
-    private let responseStyleKey = "responseStyle"
+    private let responseStyleKey = AppConfiguration.Keys.responseStyle
 
     var body: some View {
         Form {
