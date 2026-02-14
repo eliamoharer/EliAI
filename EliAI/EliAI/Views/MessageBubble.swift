@@ -643,7 +643,7 @@ private struct MathSegmentView: View {
             equation: preparedLatex,
             font: .latinModernFont,
             textAlignment: .left,
-            fontSize: display ? 18 : 17,
+            fontSize: display ? 19 : 18,
             labelMode: display ? .display : .text,
             textColor: role == .user ? UIColor.white : UIColor.label,
             insets: MTEdgeInsets(
@@ -740,7 +740,8 @@ private struct MarkdownMathText: UIViewRepresentable {
             mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)
         }
 
-        applyReadableTextSizing(to: mutable, delta: 1)
+        applyReadableTextSizing(to: mutable, delta: 0)
+        applyParagraphSpacing(to: mutable, spacing: 6)
 
         applyInlineMathAttachments(
             to: mutable,
@@ -796,7 +797,7 @@ private struct MarkdownMathText: UIViewRepresentable {
         coordinator: Coordinator
     ) -> NSTextAttachment {
         let color = role == .user ? UIColor.white : UIColor.label
-        let mathFontSize = max(16, referenceFont.pointSize)
+        let mathFontSize = max(17, referenceFont.pointSize + 1)
         let cacheKey = "\(role.rawValue)|\(mathFontSize)|\(latex)"
 
         let image: UIImage
@@ -909,6 +910,32 @@ private struct MarkdownMathText: UIViewRepresentable {
 
         for (range, font) in updates {
             mutable.addAttribute(.font, value: font, range: range)
+        }
+    }
+
+    private func applyParagraphSpacing(to mutable: NSMutableAttributedString, spacing: CGFloat) {
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        guard fullRange.length > 0 else {
+            return
+        }
+
+        var updates: [(NSRange, NSParagraphStyle)] = []
+        mutable.enumerateAttribute(.paragraphStyle, in: fullRange, options: []) { value, range, _ in
+            let mutableStyle: NSMutableParagraphStyle
+            if let style = value as? NSParagraphStyle, let copied = style.mutableCopy() as? NSMutableParagraphStyle {
+                mutableStyle = copied
+            } else {
+                mutableStyle = NSMutableParagraphStyle()
+            }
+
+            if mutableStyle.paragraphSpacing < spacing {
+                mutableStyle.paragraphSpacing = spacing
+            }
+            updates.append((range, mutableStyle))
+        }
+
+        for (range, style) in updates {
+            mutable.addAttribute(.paragraphStyle, value: style, range: range)
         }
     }
 
