@@ -57,6 +57,23 @@ final class MessageFormattingTests: XCTestCase {
         XCTAssertFalse(output.markdown.contains("$ x^2 + 1 $"))
     }
 
+    func testNormalizeAndExtractHandlesNumberedInlineMathSample() {
+        let input = """
+        1. $ 3x + 5 = 2x + 9 $
+        2. $ \\sqrt{16} + 4 = 6 $
+        3. $ \\frac{a}{b} \\times c = d $
+        """
+        let normalized = MessageFormatting.normalizeMarkdown(input)
+        XCTAssertTrue(normalized.contains("1\\. $ 3x + 5 = 2x + 9 $"))
+        XCTAssertTrue(normalized.contains("2\\. $ \\sqrt{16} + 4 = 6 $"))
+
+        let output = MessageFormatting.extractInlineMathPlaceholders(from: normalized)
+        XCTAssertEqual(output.tokens.count, 3)
+        XCTAssertEqual(output.tokens[0].latex, "3x + 5 = 2x + 9")
+        XCTAssertEqual(output.tokens[1].latex, "\\sqrt{16} + 4 = 6")
+        XCTAssertEqual(output.tokens[2].latex, "\\frac{a}{b} \\times c = d")
+    }
+
     func testInlineMathExtractionSkipsPlainTextInsideDollars() {
         let input = "Text with $ not actually math words $ should stay text."
         let output = MessageFormatting.extractInlineMathPlaceholders(from: input)

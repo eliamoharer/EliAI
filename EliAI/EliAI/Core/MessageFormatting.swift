@@ -51,6 +51,14 @@ enum MessageFormatting {
             options: .regularExpression
         )
 
+        // Keep ordered list markers visible in UITextView markdown rendering.
+        // Escaping "." avoids parser-specific list marker stripping.
+        value = value.replacingOccurrences(
+            of: #"(?m)^(\s*)(\d+)\.\s+"#,
+            with: "$1$2\\. ",
+            options: .regularExpression
+        )
+
         value = value.replacingOccurrences(
             of: #":\s*-\s+"#,
             with: ":\n- ",

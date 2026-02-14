@@ -3,6 +3,10 @@ import SwiftUI
 import SwiftMath
 import UIKit
 
+private extension NSAttributedString.Key {
+    static let inlineLatexSource = NSAttributedString.Key("EliInlineLatexSource")
+}
+
 private struct MessageSegment {
     enum Kind {
         case markdown(String)
@@ -639,7 +643,7 @@ private struct MathSegmentView: View {
             equation: preparedLatex,
             font: .latinModernFont,
             textAlignment: .left,
-            fontSize: display ? 21 : 19,
+            fontSize: display ? 18 : 17,
             labelMode: display ? .display : .text,
             textColor: role == .user ? UIColor.white : UIColor.label,
             insets: MTEdgeInsets(
@@ -657,9 +661,19 @@ private struct MathSegmentView: View {
                     .padding(.vertical, 2)
             }
             .frame(minHeight: 44)
+            .contextMenu {
+                Button("Copy LaTeX") {
+                    UIPasteboard.general.string = "$$\(latex)$$"
+                }
+            }
         } else {
             mathLabel
                 .frame(minHeight: 30)
+                .contextMenu {
+                    Button("Copy LaTeX") {
+                        UIPasteboard.general.string = "$\(latex)$"
+                    }
+                }
         }
     }
 }
@@ -677,7 +691,7 @@ private struct MarkdownMathText: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+        let view = MathCopyTextView()
         view.backgroundColor = .clear
         view.isEditable = false
         view.isScrollEnabled = false
@@ -726,7 +740,7 @@ private struct MarkdownMathText: UIViewRepresentable {
             mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)
         }
 
-        applyReadableTextSizing(to: mutable, delta: 2)
+        applyReadableTextSizing(to: mutable, delta: 1)
 
         applyInlineMathAttachments(
             to: mutable,
@@ -762,7 +776,10 @@ private struct MarkdownMathText: UIViewRepresentable {
                     coordinator: coordinator
                 )
 
-                mutable.replaceCharacters(in: found, with: NSAttributedString(attachment: attachment))
+                let replacement = NSMutableAttributedString(attachment: attachment)
+                let replacementRange = NSRange(location: 0, length: replacement.length)
+                replacement.addAttribute(.inlineLatexSource, value: token.latex, range: replacementRange)
+                mutable.replaceCharacters(in: found, with: replacement)
 
                 let nextLocation = min(found.location + 1, mutable.length)
                 if nextLocation >= mutable.length {
@@ -779,7 +796,7 @@ private struct MarkdownMathText: UIViewRepresentable {
         coordinator: Coordinator
     ) -> NSTextAttachment {
         let color = role == .user ? UIColor.white : UIColor.label
-        let mathFontSize = max(17, referenceFont.pointSize + 1)
+        let mathFontSize = max(16, referenceFont.pointSize)
         let cacheKey = "\(role.rawValue)|\(mathFontSize)|\(latex)"
 
         let image: UIImage
@@ -880,10 +897,13 @@ private struct MarkdownMathText: UIViewRepresentable {
             return
         }
 
+        let baseBodyFont = UIFont.preferredFont(forTextStyle: .body)
         var updates: [(NSRange, UIFont)] = []
         mutable.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
             if let font = value as? UIFont {
                 updates.append((range, font.withSize(font.pointSize + delta)))
+            } else {
+                updates.append((range, baseBodyFont.withSize(baseBodyFont.pointSize + delta)))
             }
         }
 
@@ -905,6 +925,36 @@ private struct MarkdownMathText: UIViewRepresentable {
                 }
                 mutable.replaceCharacters(in: range, with: token.latex)
             }
+        }
+    }
+}
+
+private final class MathCopyTextView: UITextView {
+    override func copy(_ sender: Any?) {
+        let range = selectedRange
+        guard range.location != NSNotFound, range.length > 0 else {
+            super.copy(sender)
+            return
+        }
+
+        let selected = attributedText.attributedSubstring(from: range)
+        var rendered = ""
+        selected.enumerateAttributes(
+            in: NSRange(location: 0, length: selected.length),
+            options: []
+        ) { attributes, attrRange, _ in
+            if let latex = attributes[.inlineLatexSource] as? String {
+                rendered += "$\(latex)$"
+            } else {
+                let chunk = (selected.string as NSString).substring(with: attrRange)
+                rendered += chunk
+            }
+        }
+
+        if rendered.isEmpty {
+            super.copy(sender)
+        } else {
+            UIPasteboard.general.string = rendered
         }
     }
 }
