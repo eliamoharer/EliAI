@@ -252,8 +252,8 @@ enum MessageFormatting {
             .split(whereSeparator: { $0.isWhitespace })
             .filter { !$0.isEmpty }
 
-        // Plain $...$ with prose in it is usually currency/text, not math.
-        if words.count != 1 {
+        // Plain $...$ with longer prose in it is usually currency/text, not math.
+        if words.count > 3 {
             return false
         }
 
@@ -281,7 +281,7 @@ enum MessageFormatting {
                 isMarkdownBlockBoundary(currentLine: line, nextLine: nextLine) {
                 output += "\n"
             } else {
-                output += "  \n"
+                output += "\\\n"
             }
         }
 

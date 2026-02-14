@@ -547,6 +547,21 @@ private func sanitizeLatexForSwiftMath(_ latex: String) -> String {
     value = value.replacingOccurrences(of: "\\dfrac", with: "\\frac")
     value = value.replacingOccurrences(of: "\\tfrac", with: "\\frac")
     value = value.replacingOccurrences(of: "\\displaystyle", with: "")
+    value = value.replacingOccurrences(
+        of: #"\\boxed\s*\{([^{}]+)\}"#,
+        with: "$1",
+        options: .regularExpression
+    )
+    value = value.replacingOccurrences(
+        of: #"\\text\s*\{([^{}]+)\}"#,
+        with: "$1",
+        options: .regularExpression
+    )
+    value = value.replacingOccurrences(
+        of: #"\\mathrm\s*\{([^{}]+)\}"#,
+        with: "$1",
+        options: .regularExpression
+    )
     return value
 }
 
@@ -654,6 +669,9 @@ private struct MarkdownMathText: UIViewRepresentable {
             coordinator: coordinator
         )
 
+        // Never leave opaque placeholders in rendered output if markdown mutated token boundaries.
+        removeAnyResidualInlineMathPlaceholders(from: mutable, tokens: extracted.tokens)
+
         return mutable
     }
 
@@ -703,7 +721,16 @@ private struct MarkdownMathText: UIViewRepresentable {
         if let cached = coordinator.imageCache[cacheKey] {
             image = cached
         } else {
-            image = renderInlineMathImage(latex: latex, color: color, fontSize: mathFontSize)
+            let rendered = renderInlineMathImage(latex: latex, color: color, fontSize: mathFontSize)
+            if rendered.size.width <= 6 || rendered.size.height <= 6 {
+                image = renderFallbackInlineTextImage(
+                    latex: latex,
+                    color: color,
+                    fontSize: max(16, referenceFont.pointSize + 1)
+                )
+            } else {
+                image = rendered
+            }
             coordinator.imageCache[cacheKey] = image
         }
 
@@ -755,6 +782,28 @@ private struct MarkdownMathText: UIViewRepresentable {
         }
     }
 
+    private func renderFallbackInlineTextImage(latex: String, color: UIColor, fontSize: CGFloat) -> UIImage {
+        let font = UIFont.systemFont(ofSize: fontSize, weight: .regular)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: color
+        ]
+        let text = latex as NSString
+        let measured = text.size(withAttributes: attributes)
+        let size = CGSize(width: max(8, ceil(measured.width)), height: max(20, ceil(measured.height)))
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        format.scale = UIScreen.main.scale
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { _ in
+            text.draw(
+                in: CGRect(x: 0, y: max(0, (size.height - measured.height) / 2), width: size.width, height: size.height),
+                withAttributes: attributes
+            )
+        }
+    }
+
     private func applyReadableTextSizing(to mutable: NSMutableAttributedString, delta: CGFloat) {
         let fullRange = NSRange(location: 0, length: mutable.length)
         guard fullRange.length > 0 else {
@@ -765,13 +814,24 @@ private struct MarkdownMathText: UIViewRepresentable {
         mutable.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
             if let font = value as? UIFont {
                 updates.append((range, font.withSize(font.pointSize + delta)))
-            } else {
-                updates.append((range, UIFont.systemFont(ofSize: 19)))
             }
         }
 
         for (range, font) in updates {
             mutable.addAttribute(.font, value: font, range: range)
+        }
+    }
+
+    private func removeAnyResidualInlineMathPlaceholders(
+        from mutable: NSMutableAttributedString,
+        tokens: [InlineMathToken]
+    ) {
+        for token in tokens {
+            let whole = mutable.string as NSString
+            let range = whole.range(of: token.placeholder)
+            if range.location != NSNotFound {
+                mutable.replaceCharacters(in: range, with: token.latex)
+            }
         }
     }
 }

@@ -69,6 +69,13 @@ final class MessageFormattingTests: XCTestCase {
         let input = "Line one\nLine two"
         let normalized = MessageFormatting.normalizeMarkdown(input)
 
-        XCTAssertTrue(normalized.contains("Line one  \nLine two"))
+        XCTAssertTrue(normalized.contains("Line one\\\nLine two"))
+    }
+
+    func testNormalizeMarkdownConvertsLiteralEscapedNewline() {
+        let input = "Line one\\nLine two"
+        let normalized = MessageFormatting.normalizeMarkdown(input)
+
+        XCTAssertTrue(normalized.contains("Line one\\\nLine two"))
     }
 }

@@ -12,9 +12,9 @@ struct ChatView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var inputText = ""
-    @FocusState private var isInputFocused: Bool
     @State private var showFileImporter = false
     @State private var keyboardOverlap: CGFloat = 0
+    @State private var composerHeight: CGFloat = 40
     private let bottomAnchorID = "chatBottomAnchor"
 
     private var currentMessages: [ChatMessage] {
@@ -272,7 +272,7 @@ struct ChatView: View {
             .id(chatManager.currentSession?.id)
             .scrollDismissesKeyboard(.interactively)
             .onTapGesture {
-                isInputFocused = false
+                dismissKeyboard()
             }
             .onChange(of: chatManager.currentSession?.messages.count) { _, _ in
                 scrollToBottom(proxy: proxy)
@@ -348,10 +348,22 @@ struct ChatView: View {
             Divider()
                 .overlay(Color.white.opacity(0.25))
             HStack(alignment: .bottom) {
-                TextField("Message...", text: $inputText, axis: .vertical)
-                    .focused($isInputFocused)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+                ZStack(alignment: .topLeading) {
+                    if inputText.isEmpty {
+                        Text("Message...")
+                            .foregroundColor(.secondary.opacity(0.7))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 8)
+                    }
+
+                    GrowingComposerTextView(
+                        text: $inputText,
+                        dynamicHeight: $composerHeight
+                    )
+                    .frame(height: composerHeight)
+                }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
                     .background {
                         liquidRoundedBackground(cornerRadius: 22)
                     }
@@ -359,7 +371,6 @@ struct ChatView: View {
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
                             .stroke(Color.white.opacity(0.35), lineWidth: 0.8)
                     )
-                    .lineLimit(1 ... 5)
                     .disabled(!llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel)
 
                 Button(action: sendMessage) {
@@ -544,6 +555,10 @@ struct ChatView: View {
         }
     }
 
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     @ViewBuilder
     private func liquidRoundedBackground(cornerRadius: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -602,5 +617,66 @@ struct ChatView: View {
                     )
             )
             .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+    }
+}
+
+private struct GrowingComposerTextView: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var dynamicHeight: CGFloat
+
+    private let minHeight: CGFloat = 38
+    private let maxHeight: CGFloat = 120
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> UITextView {
+        let view = UITextView()
+        view.backgroundColor = .clear
+        view.font = .systemFont(ofSize: 19)
+        view.textColor = .label
+        view.delegate = context.coordinator
+        view.isScrollEnabled = false
+        view.textContainerInset = UIEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
+        view.textContainer.lineFragmentPadding = 0
+        view.setContentHuggingPriority(.required, for: .vertical)
+        view.setContentCompressionResistancePriority(.required, for: .vertical)
+        return view
+    }
+
+    func updateUIView(_ uiView: UITextView, context: Context) {
+        if uiView.text != text {
+            uiView.text = text
+        }
+        DispatchQueue.main.async {
+            recalculateHeight(for: uiView)
+        }
+    }
+
+    private func recalculateHeight(for textView: UITextView) {
+        let fittingSize = CGSize(
+            width: textView.bounds.width > 0 ? textView.bounds.width : UIScreen.main.bounds.width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        let measured = textView.sizeThatFits(fittingSize).height
+        let clamped = min(max(minHeight, ceil(measured)), maxHeight)
+        if abs(dynamicHeight - clamped) > 0.5 {
+            dynamicHeight = clamped
+        }
+        textView.isScrollEnabled = measured > maxHeight
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: GrowingComposerTextView
+
+        init(_ parent: GrowingComposerTextView) {
+            self.parent = parent
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            parent.text = textView.text ?? ""
+            parent.recalculateHeight(for: textView)
+        }
     }
 }
