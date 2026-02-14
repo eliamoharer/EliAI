@@ -64,8 +64,8 @@ final class MessageFormattingTests: XCTestCase {
         3. $ \\frac{a}{b} \\times c = d $
         """
         let normalized = MessageFormatting.normalizeMarkdown(input)
-        XCTAssertTrue(normalized.contains("1\\. $ 3x + 5 = 2x + 9 $"))
-        XCTAssertTrue(normalized.contains("2\\. $ \\sqrt{16} + 4 = 6 $"))
+        XCTAssertTrue(normalized.contains("1) $ 3x + 5 = 2x + 9 $"))
+        XCTAssertTrue(normalized.contains("2) $ \\sqrt{16} + 4 = 6 $"))
 
         let output = MessageFormatting.extractInlineMathPlaceholders(from: normalized)
         XCTAssertEqual(output.tokens.count, 3)
@@ -102,14 +102,14 @@ final class MessageFormattingTests: XCTestCase {
         let input = "Line one\nLine two"
         let normalized = MessageFormatting.normalizeMarkdown(input)
 
-        XCTAssertTrue(normalized.contains("Line one\\\nLine two"))
+        XCTAssertTrue(normalized.contains("Line one<br>\nLine two"))
     }
 
     func testNormalizeMarkdownConvertsLiteralEscapedNewline() {
         let input = "Line one\\nLine two"
         let normalized = MessageFormatting.normalizeMarkdown(input)
 
-        XCTAssertTrue(normalized.contains("Line one\\\nLine two"))
+        XCTAssertTrue(normalized.contains("Line one<br>\nLine two"))
     }
 
     func testNormalizeMarkdownPreservesDoubleNewlineParagraphBreak() {

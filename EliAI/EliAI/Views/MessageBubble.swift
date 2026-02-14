@@ -70,6 +70,11 @@ struct MessageBubble: View {
 
                 if !visibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || message.role != .assistant {
                     messageContent(segments: segments)
+                        .frame(
+                            minWidth: message.role == .user ? UIScreen.main.bounds.width * 0.48 : nil,
+                            maxWidth: message.role == .user ? UIScreen.main.bounds.width * 0.86 : nil,
+                            alignment: message.role == .user ? .trailing : .leading
+                        )
                 }
             }
 
