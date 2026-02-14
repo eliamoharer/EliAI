@@ -6,22 +6,14 @@ struct ContentView: View {
     @State private var dragOffset: CGFloat = 0
     @State private var didAttemptFallbackModel = false
 
-    @State private var fileSystem = FileSystemManager()
-    @State private var llmEngine = LLMEngine()
-    @State private var modelDownloader = ModelDownloader()
-
-    @State private var chatManager: ChatManager
-    @State private var agentManager: AgentManager
+    var fileSystem: FileSystemManager
+    var llmEngine: LLMEngine
+    var modelDownloader: ModelDownloader
+    var chatManager: ChatManager
+    var agentManager: AgentManager
 
     @State private var showingSettings = false
     @State private var showingNewChatDialog = false
-
-    init() {
-        let fs = FileSystemManager()
-        _fileSystem = State(initialValue: fs)
-        _chatManager = State(initialValue: ChatManager(fileSystem: fs))
-        _agentManager = State(initialValue: AgentManager(fileSystem: fs))
-    }
 
     var body: some View {
         ZStack {

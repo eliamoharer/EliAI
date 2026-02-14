@@ -29,6 +29,10 @@ struct MessageBubble: View {
     let message: ChatMessage
     let isStreaming: Bool
     @State private var isThinkingVisible = false
+    
+    @State private var cachedSegments: [MessageSegment] = []
+    @State private var cachedThinking: String = ""
+    @State private var cachedVisibleText: String = ""
 
     init(message: ChatMessage, isStreaming: Bool = false) {
         self.message = message
@@ -36,10 +40,6 @@ struct MessageBubble: View {
     }
 
     var body: some View {
-        let parsed = parseThinkingSections(from: message.content)
-        let visibleText = message.role == .assistant ? parsed.visible : message.content
-        let segments = parseContentSegments(from: visibleText)
-
         HStack(alignment: .bottom, spacing: 8) {
             if message.role == .user {
                 Spacer()
@@ -53,9 +53,9 @@ struct MessageBubble: View {
             }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {
-                if message.role == .assistant, !parsed.thinking.isEmpty {
+                if message.role == .assistant, !cachedThinking.isEmpty {
                     DisclosureGroup(isExpanded: $isThinkingVisible) {
-                        Text(parsed.thinking)
+                        Text(cachedThinking)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .textSelection(.enabled)
@@ -68,8 +68,8 @@ struct MessageBubble: View {
                     }
                 }
 
-                if !visibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || message.role != .assistant {
-                    messageContent(segments: segments)
+                if !cachedVisibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || message.role != .assistant {
+                    messageContent(segments: cachedSegments)
                         .frame(
                             minWidth: message.role == .user ? UIScreen.main.bounds.width * 0.48 : nil,
                             maxWidth: message.role == .user ? UIScreen.main.bounds.width * 0.86 : nil,
@@ -86,6 +86,19 @@ struct MessageBubble: View {
                     .frame(width: 22, height: 22)
                     .foregroundColor(.gray)
             }
+        }
+        .onAppear { loadContent() }
+        .onChange(of: message.content) { _, _ in loadContent() }
+    }
+
+    private func loadContent() {
+        let parsed = parseThinkingSections(from: message.content)
+        let visible = message.role == .assistant ? parsed.visible : message.content
+        
+        if visible != cachedVisibleText || parsed.thinking != cachedThinking {
+            self.cachedVisibleText = visible
+            self.cachedThinking = parsed.thinking
+            self.cachedSegments = parseContentSegments(from: visible)
         }
     }
 

@@ -18,33 +18,21 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     var log: String = "Ready to load model."
     var availableModels: [String] = []
 
-    let remoteCatalog: [RemoteModel] = [
-        RemoteModel(
-            id: "qwen3-1.7b-q4km",
-            displayName: "Qwen 3 1.7B (Q4_K_M)",
-            fileName: "Qwen3-1.7B-Q4_K_M.gguf",
-            profile: .qwen3,
-            urlString: "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf"
-        ),
-        RemoteModel(
-            id: "lfm2.5-1.2b-thinking-q4km",
-            displayName: "LFM 2.5 1.2B Thinking (Q4_K_M)",
-            fileName: "LFM2.5-1.2B-Thinking-Q4_K_M.gguf",
-            profile: .lfm25,
-            urlString: "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Thinking-GGUF/resolve/main/LFM2.5-1.2B-Thinking-Q4_K_M.gguf"
-        ),
-        RemoteModel(
-            id: "lfm2.5-1.2b-instruct-q4km",
-            displayName: "LFM 2.5 1.2B Instruct (Q4_K_M)",
-            fileName: "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
-            profile: .lfm25,
-            urlString: "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
-        )
-    ]
+    var remoteCatalog: [RemoteModel] {
+        AppConfiguration.remoteModels.map { config in
+            RemoteModel(
+                id: config.id,
+                displayName: config.displayName,
+                fileName: config.fileName,
+                profile: config.profile,
+                urlString: config.urlString
+            )
+        }
+    }
 
     var selectedRemoteModelID: String {
-        get { UserDefaults.standard.string(forKey: "selectedRemoteModelID") ?? "qwen3-1.7b-q4km" }
-        set { UserDefaults.standard.set(newValue, forKey: "selectedRemoteModelID") }
+        get { UserDefaults.standard.string(forKey: AppConfiguration.Keys.selectedRemoteModelID) ?? AppConfiguration.defaultModelID }
+        set { UserDefaults.standard.set(newValue, forKey: AppConfiguration.Keys.selectedRemoteModelID) }
     }
 
     var selectedRemoteModel: RemoteModel {
@@ -52,9 +40,9 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     }
 
     var activeModelName: String {
-        get { UserDefaults.standard.string(forKey: "activeModelName") ?? selectedRemoteModel.fileName }
+        get { UserDefaults.standard.string(forKey: AppConfiguration.Keys.activeModelName) ?? selectedRemoteModel.fileName }
         set {
-            UserDefaults.standard.set(newValue, forKey: "activeModelName")
+            UserDefaults.standard.set(newValue, forKey: AppConfiguration.Keys.activeModelName)
             checkLocalModel()
         }
     }

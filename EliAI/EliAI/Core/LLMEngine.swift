@@ -31,7 +31,7 @@ class LLMEngine {
 
     private let maxPromptCharacters = 24_000
     private let maxHistoryMessages = 24
-    private let responseStyleDefaultsKey = "responseStyle"
+    private let responseStyleDefaultsKey = AppConfiguration.Keys.responseStyle
 
     func preflightModel(at url: URL) throws -> ModelValidationReport {
         try ModelValidator.validateModel(at: url)
