@@ -240,6 +240,9 @@ enum MessageFormatting {
         if looksLikeCurrencyAmount(content) {
             return false
         }
+        if content.contains("\\begin{") || content.contains("\\end{") {
+            return false
+        }
 
         let hasLatexCommand = content.contains("\\")
         let hasOperators = content.range(of: #"[=+\-*/^_<>]"#, options: .regularExpression) != nil

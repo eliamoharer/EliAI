@@ -82,6 +82,14 @@ final class MessageFormattingTests: XCTestCase {
         XCTAssertEqual(output.markdown, input)
     }
 
+    func testInlineMathExtractionSkipsBeginEndEnvironmentInsideSingleDollars() {
+        let input = "$ \\begin{cases}x^2, & x>0 \\\\ 0, & x \\le 0\\end{cases} $"
+        let output = MessageFormatting.extractInlineMathPlaceholders(from: input)
+
+        XCTAssertEqual(output.tokens.count, 0)
+        XCTAssertEqual(output.markdown, input)
+    }
+
     func testNormalizeMarkdownFixesHeadingsAndListMarkers() {
         let input = "Here are examples: - **Flower** - A beautiful flower\n###Step 2"
         let normalized = MessageFormatting.normalizeMarkdown(input)

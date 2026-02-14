@@ -330,6 +330,8 @@ struct MessageBubble: View {
             MathDelimiter(open: "\\begin{align}", close: "\\end{align}", display: true),
             MathDelimiter(open: "\\begin{multline*}", close: "\\end{multline*}", display: true),
             MathDelimiter(open: "\\begin{multline}", close: "\\end{multline}", display: true),
+            MathDelimiter(open: "\\begin{cases*}", close: "\\end{cases*}", display: true),
+            MathDelimiter(open: "\\begin{cases}", close: "\\end{cases}", display: true),
             MathDelimiter(open: "$$", close: "$$", display: true),
             MathDelimiter(open: "\\[", close: "\\]", display: true)
         ]
@@ -686,6 +688,9 @@ private struct MathSegmentView: View {
 private struct MarkdownMathText: UIViewRepresentable {
     let text: String
     let role: ChatMessage.Role
+    private static let orderedListRegex = try? NSRegularExpression(pattern: #"^(\s*)(\d+)\.\s+(.*)$"#)
+    private static let unorderedListRegex = try? NSRegularExpression(pattern: #"^(\s*)[-*+]\s+(.*)$"#)
+    private static let headingRegex = try? NSRegularExpression(pattern: #"^(#{1,6})\s+(.*)$"#)
 
     final class Coordinator {
         var imageCache: [String: UIImage] = [:]
@@ -726,26 +731,13 @@ private struct MarkdownMathText: UIViewRepresentable {
     private func makeAttributedText(coordinator: Coordinator) -> NSAttributedString {
         let normalized = MessageFormatting.normalizeMarkdown(text.isEmpty ? " " : text)
         let extracted = MessageFormatting.extractInlineMathPlaceholders(from: normalized)
-
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .full,
-            failurePolicy: .returnPartiallyParsedIfPossible
-        )
-        let parsed: AttributedString
-        if let attributed = try? AttributedString(markdown: extracted.markdown, options: options) {
-            parsed = attributed
-        } else {
-            parsed = AttributedString(extracted.markdown)
-        }
-
-        let mutable = NSMutableAttributedString(attributedString: NSAttributedString(parsed))
+        let mutable = buildStructuredAttributedText(from: extracted.markdown)
         let fullRange = NSRange(location: 0, length: mutable.length)
         if role == .user {
             mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)
         }
 
         applyReadableTextSizing(to: mutable, delta: 0)
-        applyParagraphSpacing(to: mutable, spacing: 6)
 
         applyInlineMathAttachments(
             to: mutable,
@@ -757,6 +749,145 @@ private struct MarkdownMathText: UIViewRepresentable {
         removeAnyResidualInlineMathPlaceholders(from: mutable, tokens: extracted.tokens)
 
         return mutable
+    }
+
+    private func buildStructuredAttributedText(from markdown: String) -> NSMutableAttributedString {
+        let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let output = NSMutableAttributedString()
+
+        for index in lines.indices {
+            let line = lines[index]
+            output.append(renderStructuredLine(line))
+            if index < lines.count - 1 {
+                output.append(NSAttributedString(string: "\n"))
+            }
+        }
+
+        return output
+    }
+
+    private func renderStructuredLine(_ line: String) -> NSAttributedString {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
+            return NSAttributedString(string: "")
+        }
+
+        if let ordered = parseOrderedListLine(line) {
+            return renderListLine(
+                prefix: "\(ordered.number). ",
+                content: ordered.content,
+                indentLevel: ordered.indentLevel
+            )
+        }
+
+        if let unordered = parseUnorderedListLine(line) {
+            return renderListLine(
+                prefix: "\u{2022} ",
+                content: unordered.content,
+                indentLevel: unordered.indentLevel
+            )
+        }
+
+        if let heading = parseHeadingLine(line) {
+            let headingText = inlineAttributedString(from: heading.content)
+            let mutable = NSMutableAttributedString(attributedString: headingText)
+            applyHeadingStyle(to: mutable, level: heading.level)
+            return mutable
+        }
+
+        return inlineAttributedString(from: line)
+    }
+
+    private func parseOrderedListLine(_ line: String) -> (number: String, content: String, indentLevel: Int)? {
+        guard let regex = Self.orderedListRegex else {
+            return nil
+        }
+        let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let match = regex.firstMatch(in: line, options: [], range: nsRange),
+              match.numberOfRanges == 4,
+              let indentRange = Range(match.range(at: 1), in: line),
+              let numberRange = Range(match.range(at: 2), in: line),
+              let contentRange = Range(match.range(at: 3), in: line) else {
+            return nil
+        }
+
+        let indentLevel = max(0, line[indentRange].count / 2)
+        return (String(line[numberRange]), String(line[contentRange]), indentLevel)
+    }
+
+    private func parseUnorderedListLine(_ line: String) -> (content: String, indentLevel: Int)? {
+        guard let regex = Self.unorderedListRegex else {
+            return nil
+        }
+        let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let match = regex.firstMatch(in: line, options: [], range: nsRange),
+              match.numberOfRanges == 3,
+              let indentRange = Range(match.range(at: 1), in: line),
+              let contentRange = Range(match.range(at: 2), in: line) else {
+            return nil
+        }
+
+        let indentLevel = max(0, line[indentRange].count / 2)
+        return (String(line[contentRange]), indentLevel)
+    }
+
+    private func parseHeadingLine(_ line: String) -> (level: Int, content: String)? {
+        guard let regex = Self.headingRegex else {
+            return nil
+        }
+        let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
+        guard let match = regex.firstMatch(in: line, options: [], range: nsRange),
+              match.numberOfRanges == 3,
+              let levelRange = Range(match.range(at: 1), in: line),
+              let contentRange = Range(match.range(at: 2), in: line) else {
+            return nil
+        }
+
+        return (line[levelRange].count, String(line[contentRange]))
+    }
+
+    private func renderListLine(prefix: String, content: String, indentLevel: Int) -> NSAttributedString {
+        let indentWidth = CGFloat(indentLevel) * 18.0
+        let listText = NSMutableAttributedString()
+        listText.append(NSAttributedString(string: String(repeating: " ", count: indentLevel * 2)))
+        listText.append(NSAttributedString(string: prefix))
+        listText.append(inlineAttributedString(from: content))
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.firstLineHeadIndent = indentWidth
+        paragraphStyle.headIndent = indentWidth + 18.0
+        paragraphStyle.paragraphSpacing = 2
+        listText.addAttribute(
+            .paragraphStyle,
+            value: paragraphStyle,
+            range: NSRange(location: 0, length: listText.length)
+        )
+        return listText
+    }
+
+    private func inlineAttributedString(from markdownInline: String) -> NSAttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible
+        )
+        if let attributed = try? AttributedString(markdown: markdownInline, options: options) {
+            return NSAttributedString(attributed)
+        }
+        return NSAttributedString(string: markdownInline)
+    }
+
+    private func applyHeadingStyle(to attributed: NSMutableAttributedString, level: Int) {
+        let base = UIFont.preferredFont(forTextStyle: .body).pointSize
+        let bump: CGFloat
+        switch level {
+        case 1: bump = 8
+        case 2: bump = 6
+        case 3: bump = 4
+        case 4: bump = 3
+        default: bump = 2
+        }
+        let headingFont = UIFont.systemFont(ofSize: base + bump, weight: .semibold)
+        attributed.addAttribute(.font, value: headingFont, range: NSRange(location: 0, length: attributed.length))
     }
 
     private func applyInlineMathAttachments(
@@ -838,7 +969,7 @@ private struct MarkdownMathText: UIViewRepresentable {
         label.backgroundColor = .clear
         label.latex = sanitizeLatexForSwiftMath(latex)
         label.font = MTFontManager().font(withName: MathFont.latinModernFont.rawValue, size: fontSize)
-        label.labelMode = .text
+        label.labelMode = usesDisplayMathLayout(latex) ? .display : .text
         label.textColor = color
         label.textAlignment = .left
         label.contentInsets = MTEdgeInsets(top: 1, left: 0, bottom: 1, right: 0)
@@ -849,7 +980,7 @@ private struct MarkdownMathText: UIViewRepresentable {
                 height: 4096
             )
         )
-        if !measured.width.isFinite || !measured.height.isFinite {
+        if !measured.width.isFinite || !measured.height.isFinite || measured.width <= 1 || measured.height <= 1 {
             return renderFallbackInlineTextImage(latex: latex, color: color, fontSize: fontSize)
         }
         let width = max(6, ceil(measured.width))
@@ -872,6 +1003,20 @@ private struct MarkdownMathText: UIViewRepresentable {
             label.layoutIfNeeded()
             label.layer.render(in: context.cgContext)
         }
+    }
+
+    private func usesDisplayMathLayout(_ latex: String) -> Bool {
+        let normalized = latex.replacingOccurrences(of: " ", with: "")
+        if normalized.contains("\\begin{cases}") || normalized.contains("\\begin{cases*}") {
+            return true
+        }
+        if normalized.contains("\\begin{aligned}") || normalized.contains("\\begin{matrix}") {
+            return true
+        }
+        if normalized.contains("\\\\") {
+            return true
+        }
+        return false
     }
 
     private func renderFallbackInlineTextImage(latex: String, color: UIColor, fontSize: CGFloat) -> UIImage {
@@ -914,32 +1059,6 @@ private struct MarkdownMathText: UIViewRepresentable {
 
         for (range, font) in updates {
             mutable.addAttribute(.font, value: font, range: range)
-        }
-    }
-
-    private func applyParagraphSpacing(to mutable: NSMutableAttributedString, spacing: CGFloat) {
-        let fullRange = NSRange(location: 0, length: mutable.length)
-        guard fullRange.length > 0 else {
-            return
-        }
-
-        var updates: [(NSRange, NSParagraphStyle)] = []
-        mutable.enumerateAttribute(.paragraphStyle, in: fullRange, options: []) { value, range, _ in
-            let mutableStyle: NSMutableParagraphStyle
-            if let style = value as? NSParagraphStyle, let copied = style.mutableCopy() as? NSMutableParagraphStyle {
-                mutableStyle = copied
-            } else {
-                mutableStyle = NSMutableParagraphStyle()
-            }
-
-            if mutableStyle.paragraphSpacing < spacing {
-                mutableStyle.paragraphSpacing = spacing
-            }
-            updates.append((range, mutableStyle))
-        }
-
-        for (range, style) in updates {
-            mutable.addAttribute(.paragraphStyle, value: style, range: range)
         }
     }
 
