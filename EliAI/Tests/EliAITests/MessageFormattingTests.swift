@@ -127,4 +127,18 @@ final class MessageFormattingTests: XCTestCase {
         XCTAssertTrue(normalized.contains("Line one"))
         XCTAssertTrue(normalized.contains("Line four"))
     }
+
+    func testNormalizeMarkdownPreservesInlineMathBulletLinesAndParagraphBreak() {
+        let input = "Here:\\n- $ a = 1 $\\n- $ b = 2 $\\n- $ c = 3 $\\n\\nStep 2:"
+        let normalized = MessageFormatting.normalizeMarkdown(input)
+
+        XCTAssertTrue(normalized.contains("Here:\n\n- $ a = 1 $\n- $ b = 2 $\n- $ c = 3 $\n\nStep 2:"))
+    }
+
+    func testNormalizeMarkdownDoesNotTurnInlineDashSentenceIntoList() {
+        let input = "The cost - $50 - was high."
+        let normalized = MessageFormatting.normalizeMarkdown(input)
+
+        XCTAssertEqual(normalized, input)
+    }
 }

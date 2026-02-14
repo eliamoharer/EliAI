@@ -731,7 +731,6 @@ private struct MarkdownMathText: UIViewRepresentable {
             interpretedSyntax: .full,
             failurePolicy: .returnPartiallyParsedIfPossible
         )
-
         let parsed: AttributedString
         if let attributed = try? AttributedString(markdown: extracted.markdown, options: options) {
             parsed = attributed

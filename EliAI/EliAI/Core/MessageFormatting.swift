@@ -88,6 +88,7 @@ enum MessageFormatting {
             value.removeFirst()
         }
 
+        value = normalizeListBlockBoundaries(in: value)
         return preserveSingleLineBreaks(in: value)
     }
 
@@ -298,6 +299,57 @@ enum MessageFormatting {
         }
 
         return output
+    }
+
+    private static func normalizeListBlockBoundaries(in value: String) -> String {
+        let lines = value.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard lines.count > 1 else {
+            return value
+        }
+
+        var output: [String] = []
+        var inCodeFence = false
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                inCodeFence.toggle()
+                output.append(line)
+                continue
+            }
+
+            if inCodeFence {
+                output.append(line)
+                continue
+            }
+
+            let isListItem = isListItemLine(trimmed)
+            let isBlank = trimmed.isEmpty
+
+            if isListItem {
+                if let previous = output.last,
+                   !previous.trimmingCharacters(in: .whitespaces).isEmpty,
+                   !isListItemLine(previous.trimmingCharacters(in: .whitespaces)) {
+                    output.append("")
+                }
+                output.append(line)
+                continue
+            }
+
+            if !isBlank,
+               let previous = output.last,
+               isListItemLine(previous.trimmingCharacters(in: .whitespaces)) {
+                output.append("")
+            }
+
+            output.append(line)
+        }
+
+        return output.joined(separator: "\n")
+    }
+
+    private static func isListItemLine(_ trimmedLine: String) -> Bool {
+        trimmedLine.range(of: #"^([-*+]|\d+\.)\s+"#, options: .regularExpression) != nil
     }
 
     private static func isMarkdownBlockBoundary(currentLine: String, nextLine: String) -> Bool {
