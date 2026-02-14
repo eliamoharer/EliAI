@@ -561,7 +561,7 @@ private struct MathSegmentView: View {
             equation: preparedLatex,
             font: .latinModernFont,
             textAlignment: .left,
-            fontSize: display ? 23 : 20,
+            fontSize: display ? 21 : 19,
             labelMode: display ? .display : .text,
             textColor: role == .user ? UIColor.white : UIColor.label,
             insets: MTEdgeInsets(
@@ -646,9 +646,7 @@ private struct MarkdownMathText: UIViewRepresentable {
             mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)
         }
 
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineBreakMode = .byWordWrapping
-        mutable.addAttribute(.paragraphStyle, value: paragraphStyle, range: fullRange)
+        applyReadableTextSizing(to: mutable, delta: 2)
 
         applyInlineMathAttachments(
             to: mutable,
@@ -698,7 +696,7 @@ private struct MarkdownMathText: UIViewRepresentable {
         coordinator: Coordinator
     ) -> NSTextAttachment {
         let color = role == .user ? UIColor.white : UIColor.label
-        let mathFontSize = max(17, referenceFont.pointSize + 2)
+        let mathFontSize = max(17, referenceFont.pointSize + 1)
         let cacheKey = "\(role.rawValue)|\(mathFontSize)|\(latex)"
 
         let image: UIImage
@@ -754,6 +752,26 @@ private struct MarkdownMathText: UIViewRepresentable {
                 height: measured.height
             )
             label.layer.render(in: context.cgContext)
+        }
+    }
+
+    private func applyReadableTextSizing(to mutable: NSMutableAttributedString, delta: CGFloat) {
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        guard fullRange.length > 0 else {
+            return
+        }
+
+        var updates: [(NSRange, UIFont)] = []
+        mutable.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
+            if let font = value as? UIFont {
+                updates.append((range, font.withSize(font.pointSize + delta)))
+            } else {
+                updates.append((range, UIFont.systemFont(ofSize: 19)))
+            }
+        }
+
+        for (range, font) in updates {
+            mutable.addAttribute(.font, value: font, range: range)
         }
     }
 }

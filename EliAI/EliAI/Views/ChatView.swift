@@ -285,11 +285,6 @@ struct ChatView: View {
             .onChange(of: chatManager.currentSession?.messages.last?.id) { _, _ in
                 scrollToBottom(proxy: proxy)
             }
-            .onChange(of: chatManager.currentSession?.messages.last?.content) { _, _ in
-                if llmEngine.isGenerating {
-                    scrollToBottom(proxy: proxy, animated: false)
-                }
-            }
             .onChange(of: chatManager.currentSession?.id) { _, _ in
                 scrollToBottom(proxy: proxy)
             }
@@ -401,7 +396,7 @@ struct ChatView: View {
             return 12
         }
         if keyboardOverlap > 0 {
-            return keyboardOverlap + 8
+            return keyboardOverlap + 12
         }
         return 30
     }
@@ -530,7 +525,7 @@ struct ChatView: View {
         }
 
         let localFrame = keyWindow.convert(keyboardFrame, from: nil)
-        let overlap = keyWindow.bounds.maxY - localFrame.minY - keyWindow.safeAreaInsets.bottom
+        let overlap = keyWindow.bounds.maxY - localFrame.minY
         return max(0, overlap)
     }
 

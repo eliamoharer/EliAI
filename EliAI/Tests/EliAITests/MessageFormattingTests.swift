@@ -39,6 +39,15 @@ final class MessageFormattingTests: XCTestCase {
         XCTAssertEqual(output.markdown, input)
     }
 
+    func testInlineMathExtractionStillFindsMathAfterCurrency() {
+        let input = "Price is $5 and solve $x^2$ now."
+        let output = MessageFormatting.extractInlineMathPlaceholders(from: input)
+
+        XCTAssertEqual(output.tokens.count, 1)
+        XCTAssertEqual(output.tokens[0].latex, "x^2")
+        XCTAssertTrue(output.markdown.contains("$5"))
+    }
+
     func testInlineMathExtractionHandlesSpacedInlineMath() {
         let input = "Compute $ x^2 + 1 $ quickly."
         let output = MessageFormatting.extractInlineMathPlaceholders(from: input)
@@ -54,5 +63,12 @@ final class MessageFormattingTests: XCTestCase {
 
         XCTAssertTrue(normalized.contains(":\n- **Flower**"))
         XCTAssertTrue(normalized.contains("\n### Step 2"))
+    }
+
+    func testNormalizeMarkdownPreservesSingleLineBreakAsHardBreak() {
+        let input = "Line one\nLine two"
+        let normalized = MessageFormatting.normalizeMarkdown(input)
+
+        XCTAssertTrue(normalized.contains("Line one  \nLine two"))
     }
 }

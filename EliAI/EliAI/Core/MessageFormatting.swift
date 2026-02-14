@@ -22,6 +22,13 @@ enum MessageFormatting {
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\\n", with: "\n")
 
+        // Move inline headings onto their own line when models emit "... ### Header".
+        value = value.replacingOccurrences(
+            of: #"(?<!\n)\s+(#{1,6})(?=\S)"#,
+            with: "\n$1 ",
+            options: .regularExpression
+        )
+
         value = value.replacingOccurrences(
             of: #"(?<!\n)(#{1,6}\s)"#,
             with: "\n$1",
@@ -38,10 +45,27 @@ enum MessageFormatting {
             with: "$1- $2",
             options: .regularExpression
         )
+        value = value.replacingOccurrences(
+            of: #"(?m)^(\s*)(\d+)\.(?!\s)(\S)"#,
+            with: "$1$2. $3",
+            options: .regularExpression
+        )
 
         value = value.replacingOccurrences(
             of: #":\s*-\s+"#,
             with: ":\n- ",
+            options: .regularExpression
+        )
+
+        // Force jammed inline list markers into real lines.
+        value = value.replacingOccurrences(
+            of: #"(?<=\S)\s+([-*+])\s+(?=(\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]|[A-Za-z]))"#,
+            with: "\n$1 ",
+            options: .regularExpression
+        )
+        value = value.replacingOccurrences(
+            of: #"(?<=\S)\s+(\d+\.)\s+(?=\S)"#,
+            with: "\n$1 ",
             options: .regularExpression
         )
 
@@ -61,7 +85,7 @@ enum MessageFormatting {
             value.removeFirst()
         }
 
-        return value
+        return preserveSingleLineBreaks(in: value)
     }
 
     static func extractInlineMathPlaceholders(from text: String) -> (markdown: String, tokens: [InlineMathToken]) {
@@ -93,18 +117,28 @@ enum MessageFormatting {
 
             let trimmedLatex = rawLatex.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmedLatex.isEmpty {
-                output += String(text[match.range.lowerBound..<endRange.upperBound])
-                cursor = endRange.upperBound
+                if match.delimiter.open == "$" {
+                    output += String(text[match.range])
+                    cursor = match.range.upperBound
+                } else {
+                    output += String(text[match.range.lowerBound..<endRange.upperBound])
+                    cursor = endRange.upperBound
+                }
                 continue
             }
 
             if !isLikelyInlineMath(trimmedLatex, delimiter: match.delimiter) {
-                output += String(text[match.range.lowerBound..<endRange.upperBound])
-                cursor = endRange.upperBound
+                if match.delimiter.open == "$" {
+                    output += String(text[match.range])
+                    cursor = match.range.upperBound
+                } else {
+                    output += String(text[match.range.lowerBound..<endRange.upperBound])
+                    cursor = endRange.upperBound
+                }
                 continue
             }
 
-            let placeholder = "@@MATH_TOKEN_\(counter)@@"
+            let placeholder = "ZZZMATHPLACEHOLDER\(counter)ZZZ"
             counter += 1
             output += placeholder
             tokens.append(InlineMathToken(placeholder: placeholder, latex: trimmedLatex))
@@ -217,11 +251,86 @@ enum MessageFormatting {
         let words = content
             .split(whereSeparator: { $0.isWhitespace })
             .filter { !$0.isEmpty }
-        if words.count > 4 {
+
+        // Plain $...$ with prose in it is usually currency/text, not math.
+        if words.count != 1 {
             return false
         }
 
         return hasLetters
+    }
+
+    private static func preserveSingleLineBreaks(in value: String) -> String {
+        let lines = value.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard lines.count > 1 else {
+            return value
+        }
+
+        var output = ""
+        for index in 0 ..< lines.count {
+            let line = lines[index]
+            output += line
+
+            guard index < lines.count - 1 else {
+                continue
+            }
+
+            let nextLine = lines[index + 1]
+            if line.trimmingCharacters(in: .whitespaces).isEmpty ||
+                nextLine.trimmingCharacters(in: .whitespaces).isEmpty ||
+                isMarkdownBlockBoundary(currentLine: line, nextLine: nextLine) {
+                output += "\n"
+            } else {
+                output += "  \n"
+            }
+        }
+
+        return output
+    }
+
+    private static func isMarkdownBlockBoundary(currentLine: String, nextLine: String) -> Bool {
+        let current = currentLine.trimmingCharacters(in: .whitespaces)
+        let next = nextLine.trimmingCharacters(in: .whitespaces)
+
+        if current == "```" || next == "```" {
+            return true
+        }
+        if current.hasPrefix(">") || next.hasPrefix(">") {
+            return true
+        }
+        if next.range(of: #"^#{1,6}\s"#, options: .regularExpression) != nil {
+            return true
+        }
+        if next.range(of: #"^([-*+])\s"#, options: .regularExpression) != nil {
+            return true
+        }
+        if next.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil {
+            return true
+        }
+        if isHorizontalRule(next) {
+            return true
+        }
+        if current.contains("|") || next.contains("|") {
+            return true
+        }
+        if current.hasPrefix("$$") || next.hasPrefix("$$") {
+            return true
+        }
+        if current.hasPrefix("\\[") || next.hasPrefix("\\[") {
+            return true
+        }
+        if current.hasPrefix("\\begin{") || next.hasPrefix("\\begin{") {
+            return true
+        }
+        return false
+    }
+
+    private static func isHorizontalRule(_ line: String) -> Bool {
+        guard line.count >= 3 else { return false }
+        if line.allSatisfy({ $0 == "-" }) { return true }
+        if line.allSatisfy({ $0 == "*" }) { return true }
+        if line.allSatisfy({ $0 == "_" }) { return true }
+        return false
     }
 
     private static func isEscaped(_ text: String, at index: String.Index) -> Bool {
