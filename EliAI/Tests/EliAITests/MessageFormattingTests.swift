@@ -64,8 +64,8 @@ final class MessageFormattingTests: XCTestCase {
         3. $ \\frac{a}{b} \\times c = d $
         """
         let normalized = MessageFormatting.normalizeMarkdown(input)
-        XCTAssertTrue(normalized.contains("1) $ 3x + 5 = 2x + 9 $"))
-        XCTAssertTrue(normalized.contains("2) $ \\sqrt{16} + 4 = 6 $"))
+        XCTAssertTrue(normalized.contains("1. $ 3x + 5 = 2x + 9 $"))
+        XCTAssertTrue(normalized.contains("2. $ \\sqrt{16} + 4 = 6 $"))
 
         let output = MessageFormatting.extractInlineMathPlaceholders(from: normalized)
         XCTAssertEqual(output.tokens.count, 3)
@@ -102,14 +102,14 @@ final class MessageFormattingTests: XCTestCase {
         let input = "Line one\nLine two"
         let normalized = MessageFormatting.normalizeMarkdown(input)
 
-        XCTAssertTrue(normalized.contains("Line one<br>\nLine two"))
+        XCTAssertTrue(normalized.contains("Line one  \nLine two"))
     }
 
     func testNormalizeMarkdownConvertsLiteralEscapedNewline() {
         let input = "Line one\\nLine two"
         let normalized = MessageFormatting.normalizeMarkdown(input)
 
-        XCTAssertTrue(normalized.contains("Line one<br>\nLine two"))
+        XCTAssertTrue(normalized.contains("Line one  \nLine two"))
     }
 
     func testNormalizeMarkdownPreservesDoubleNewlineParagraphBreak() {
@@ -117,5 +117,14 @@ final class MessageFormattingTests: XCTestCase {
         let normalized = MessageFormatting.normalizeMarkdown(input)
 
         XCTAssertTrue(normalized.contains("Paragraph one\n\nParagraph two"))
+    }
+
+    func testNormalizeMarkdownConvertsLegacyHtmlBreakTags() {
+        let input = "Line one<br>Line two<br />Line three<br/>Line four"
+        let normalized = MessageFormatting.normalizeMarkdown(input)
+
+        XCTAssertFalse(normalized.contains("<br"))
+        XCTAssertTrue(normalized.contains("Line one"))
+        XCTAssertTrue(normalized.contains("Line four"))
     }
 }

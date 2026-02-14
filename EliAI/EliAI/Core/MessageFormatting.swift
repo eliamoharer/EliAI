@@ -21,6 +21,9 @@ enum MessageFormatting {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "<br />", with: "\n")
+            .replacingOccurrences(of: "<br/>", with: "\n")
+            .replacingOccurrences(of: "<br>", with: "\n")
 
         // Move inline headings onto their own line when models emit "... ### Header".
         value = value.replacingOccurrences(
@@ -48,13 +51,6 @@ enum MessageFormatting {
         value = value.replacingOccurrences(
             of: #"(?m)^(\s*)(\d+)\.(?!\s)(\S)"#,
             with: "$1$2. $3",
-            options: .regularExpression
-        )
-
-        // Keep ordered list markers visible as plain text while preserving inline markdown styling.
-        value = value.replacingOccurrences(
-            of: #"(?m)^(\s*)(\d+)\.\s+"#,
-            with: "$1$2) ",
             options: .regularExpression
         )
 
@@ -297,7 +293,7 @@ enum MessageFormatting {
                 isMarkdownBlockBoundary(currentLine: line, nextLine: nextLine) {
                 output += "\n"
             } else {
-                output += "<br>\n"
+                output += "  \n"
             }
         }
 
