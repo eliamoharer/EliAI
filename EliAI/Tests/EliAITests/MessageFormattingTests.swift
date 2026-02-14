@@ -31,6 +31,23 @@ final class MessageFormattingTests: XCTestCase {
         XCTAssertTrue(output.markdown.contains("\\$5"))
     }
 
+    func testInlineMathExtractionSkipsCurrencyLikeDollarAmounts() {
+        let input = "This costs $5 and tax is $2.99."
+        let output = MessageFormatting.extractInlineMathPlaceholders(from: input)
+
+        XCTAssertEqual(output.tokens.count, 0)
+        XCTAssertEqual(output.markdown, input)
+    }
+
+    func testInlineMathExtractionHandlesSpacedInlineMath() {
+        let input = "Compute $ x^2 + 1 $ quickly."
+        let output = MessageFormatting.extractInlineMathPlaceholders(from: input)
+
+        XCTAssertEqual(output.tokens.count, 1)
+        XCTAssertEqual(output.tokens[0].latex, "x^2 + 1")
+        XCTAssertFalse(output.markdown.contains("$ x^2 + 1 $"))
+    }
+
     func testNormalizeMarkdownFixesHeadingsAndListMarkers() {
         let input = "Here are examples: - **Flower** - A beautiful flower\n###Step 2"
         let normalized = MessageFormatting.normalizeMarkdown(input)

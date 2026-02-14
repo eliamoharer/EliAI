@@ -90,16 +90,24 @@ enum MessageFormatting {
                 cursor = endRange.upperBound
                 continue
             }
+
             let trimmedLatex = rawLatex.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmedLatex.isEmpty {
                 output += String(text[match.range.lowerBound..<endRange.upperBound])
-            } else {
-                let placeholder = "«MATH_\(counter)»"
-                counter += 1
-                output += placeholder
-                tokens.append(InlineMathToken(placeholder: placeholder, latex: trimmedLatex))
+                cursor = endRange.upperBound
+                continue
             }
 
+            if !isLikelyInlineMath(trimmedLatex, delimiter: match.delimiter) {
+                output += String(text[match.range.lowerBound..<endRange.upperBound])
+                cursor = endRange.upperBound
+                continue
+            }
+
+            let placeholder = "@@MATH_TOKEN_\(counter)@@"
+            counter += 1
+            output += placeholder
+            tokens.append(InlineMathToken(placeholder: placeholder, latex: trimmedLatex))
             cursor = endRange.upperBound
         }
 
@@ -177,6 +185,43 @@ enum MessageFormatting {
         }
 
         return nil
+    }
+
+    private static func isLikelyInlineMath(_ latex: String, delimiter: InlineMathDelimiter) -> Bool {
+        if delimiter.open == "\\(" {
+            return true
+        }
+
+        let content = latex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else {
+            return false
+        }
+        if content.count > 120 {
+            return false
+        }
+
+        let hasLatexCommand = content.contains("\\")
+        let hasOperators = content.range(of: #"[=+\-*/^_<>]"#, options: .regularExpression) != nil
+        let hasBrackets = content.contains("(") || content.contains(")") || content.contains("[") || content.contains("]")
+        let hasLetters = content.range(of: #"[A-Za-z]"#, options: .regularExpression) != nil
+        let hasDigits = content.range(of: #"\d"#, options: .regularExpression) != nil
+
+        if hasLatexCommand || hasOperators || hasBrackets {
+            return true
+        }
+
+        if hasDigits, !hasLetters {
+            return false
+        }
+
+        let words = content
+            .split(whereSeparator: { $0.isWhitespace })
+            .filter { !$0.isEmpty }
+        if words.count > 4 {
+            return false
+        }
+
+        return hasLetters
     }
 
     private static func isEscaped(_ text: String, at index: String.Index) -> Bool {

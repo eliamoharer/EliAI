@@ -620,7 +620,7 @@ private struct MarkdownMathText: UIViewRepresentable {
         guard let width = proposal.width, width.isFinite, width > 0 else {
             return nil
         }
-        let measured = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        let measured = uiView.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
         return CGSize(width: width, height: ceil(measured.height))
     }
 
@@ -731,7 +731,12 @@ private struct MarkdownMathText: UIViewRepresentable {
         label.textAlignment = .left
         label.contentInsets = MTEdgeInsets(top: 1, left: 0, bottom: 1, right: 0)
 
-        let measured = label.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
+        let measured = label.sizeThatFits(
+            CGSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        )
         let width = max(6, ceil(measured.width))
         let height = max(ceil(fontSize * 1.2), ceil(measured.height))
         let renderSize = CGSize(width: width, height: height)
@@ -787,7 +792,7 @@ private struct LaTeXMathLabel: UIViewRepresentable {
             var measuringBounds = uiView.bounds
             measuringBounds.size.width = width
             uiView.bounds = measuringBounds
-            let size = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+            let size = uiView.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
             let minHeight: CGFloat = labelMode == .display ? 34 : 24
             return CGSize(width: width, height: max(minHeight, size.height))
         }
