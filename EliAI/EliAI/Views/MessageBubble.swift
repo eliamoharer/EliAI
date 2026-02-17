@@ -25,10 +25,22 @@ private struct MathDelimiter {
     let display: Bool
 }
 
-private struct ToolCallInfo: Identifiable, Equatable {
+struct ToolCallInfo: Identifiable, Equatable {
     let id = UUID()
     let name: String
     let arguments: String
+}
+
+struct ToolOutputInfo: Identifiable, Equatable {
+    let id = UUID()
+    let content: String
+    let status: Status
+    
+    enum Status {
+        case success
+        case error
+        case code
+    }
 }
 
 struct MessageBubble: View {
@@ -40,6 +52,7 @@ struct MessageBubble: View {
     @State private var cachedThinking: String = ""
     @State private var cachedVisibleText: String = ""
     @State private var cachedToolCalls: [ToolCallInfo] = []
+    @State private var cachedToolOutputs: [ToolOutputInfo] = []
 
     init(message: ChatMessage, isStreaming: Bool = false) {
         self.message = message
@@ -100,6 +113,33 @@ struct MessageBubble: View {
                     }
                 }
 
+                if !cachedToolOutputs.isEmpty {
+                    ForEach(cachedToolOutputs) { output in
+                        DisclosureGroup {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                Text(output.content)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(output.status == .error ? .red : .secondary)
+                                    .padding(.top, 4)
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: output.status == .error ? "exclamationmark.triangle.fill" : "terminal.fill")
+                                    .font(.caption2)
+                                Text(output.status == .error ? "Tool Error" : (output.status == .code ? "Generated Code" : "Tool Result"))
+                                    .font(.caption2)
+                                    .fontWeight(.semibold)
+                            }
+                            .foregroundColor(output.status == .error ? .red : .secondary)
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(output.status == .error ? Color.red.opacity(0.1) : Color.gray.opacity(0.1))
+                        )
+                    }
+                }
+
                 if !cachedVisibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || message.role != .assistant {
                     messageContent(segments: cachedSegments)
                         .frame(
@@ -127,10 +167,11 @@ struct MessageBubble: View {
         let parsed = parseThinkingAndTools(from: message.content)
         let visible = message.role == .assistant ? parsed.visible : message.content
         
-        if visible != cachedVisibleText || parsed.thinking != cachedThinking || parsed.tools != cachedToolCalls {
+        if visible != cachedVisibleText || parsed.thinking != cachedThinking || parsed.tools != cachedToolCalls || parsed.toolOutputs != cachedToolOutputs {
             self.cachedVisibleText = visible
             self.cachedThinking = parsed.thinking
             self.cachedToolCalls = parsed.tools
+            self.cachedToolOutputs = parsed.toolOutputs
             self.cachedSegments = parseContentSegments(from: visible)
         }
     }
@@ -269,68 +310,79 @@ struct MessageBubble: View {
         )
     }
 
-    private func parseThinkingAndTools(from text: String) -> (visible: String, thinking: String, tools: [ToolCallInfo]) {
+    private func parseThinkingAndTools(from text: String) -> (visible: String, thinking: String, tools: [ToolCallInfo], toolOutputs: [ToolOutputInfo]) {
         var visible = ""
         var thinkingParts: [String] = []
         var tools: [ToolCallInfo] = []
-        var cursor = text.startIndex
-
-        // 1. Extract <think> blocks first, considering they might be interleaved? 
-        // Actually, simple sequential parsing is safest if we assume standard format.
-        // But to replace correctly, we might want to do it in one pass or iteratively extract the first occurrence of EITHER tag.
-        
-        // Simplified approach: Extract thinking first (removing from text), then tools from the remainder? 
-        // No, that destroys order. Let's do a single pass parser or just iterative extraction.
-        
-        // Iterative extraction of "next special block"
+        var toolOutputs: [ToolOutputInfo] = []
         var scanner = text
         
-        while let thinkRange = scanner.range(of: "<think>"), let toolRange = scanner.range(of: "<tool_call>") {
-            if thinkRange.lowerBound < toolRange.lowerBound {
-                processThink(in: &scanner, start: thinkRange, visible: &visible, thinkingParts: &thinkingParts)
-            } else {
-                processTool(in: &scanner, start: toolRange, visible: &visible, tools: &tools)
+        // Iterative extraction of "next special block"
+        // We look for the earliest occurrence of any tag
+        while true {
+            let tags = ["<think>", "<tool_call>", "<tool_output>", "<tool_code>", "<tool_result>"]
+            var earliestRange: Range<String.Index>?
+            var earliestTag: String?
+            
+            for tag in tags {
+                if let range = scanner.range(of: tag) {
+                    if earliestRange == nil || range.lowerBound < earliestRange!.lowerBound {
+                        earliestRange = range
+                        earliestTag = tag
+                    }
+                }
             }
-        }
-        
-        // Handle remaining single types
-        while let thinkRange = scanner.range(of: "<think>") {
-            processThink(in: &scanner, start: thinkRange, visible: &visible, thinkingParts: &thinkingParts)
-        }
-        
-        while let toolRange = scanner.range(of: "<tool_call>") {
-            processTool(in: &scanner, start: toolRange, visible: &visible, tools: &tools)
-        }
-        
-        // NEW: parse and HIDE <tool_result> blocks so they don't leak into chat
-        while let resultRange = scanner.range(of: "<tool_code>") {
-             // We just strip these entirely for now, or we could add them to a "debug" view
-             processHiddenBlock(in: &scanner, start: resultRange, endTag: "</tool_code>", visible: &visible)
-        }
-        while let resultRange = scanner.range(of: "<tool_output>") {
-             processHiddenBlock(in: &scanner, start: resultRange, endTag: "</tool_output>", visible: &visible)
-        }
-        while let resultRange = scanner.range(of: "<tool_result>") {
-             processHiddenBlock(in: &scanner, start: resultRange, endTag: "</tool_result>", visible: &visible)
+            
+            guard let range = earliestRange, let tag = earliestTag else {
+                break
+            }
+            
+            switch tag {
+            case "<think>":
+                processThink(in: &scanner, start: range, visible: &visible, thinkingParts: &thinkingParts)
+            case "<tool_call>":
+                processTool(in: &scanner, start: range, visible: &visible, tools: &tools)
+            case "<tool_output>":
+                processToolOutput(in: &scanner, start: range, endTag: "</tool_output>", status: .success, visible: &visible, outputs: &toolOutputs)
+            case "<tool_result>":
+                // Treat tool_result same as tool_output for now
+                processToolOutput(in: &scanner, start: range, endTag: "</tool_result>", status: .success, visible: &visible, outputs: &toolOutputs)
+            case "<tool_code>":
+                processToolOutput(in: &scanner, start: range, endTag: "</tool_code>", status: .code, visible: &visible, outputs: &toolOutputs)
+            default:
+                break
+            }
         }
         
         visible += scanner // Append anything left
         
         let thinking = thinkingParts.joined(separator: "\n\n")
-        return (visible.trimmingCharacters(in: .whitespacesAndNewlines), thinking, tools)
+        return (visible.trimmingCharacters(in: .whitespacesAndNewlines), thinking, tools, toolOutputs)
     }
 
-    private func processHiddenBlock(in scanner: inout String, start: Range<String.Index>, endTag: String, visible: inout String) {
+    private func processToolOutput(
+        in scanner: inout String,
+        start: Range<String.Index>,
+        endTag: String,
+        status: ToolOutputInfo.Status,
+        visible: inout String,
+        outputs: inout [ToolOutputInfo]
+    ) {
         visible += String(scanner[..<start.lowerBound])
         let contentStart = start.upperBound
         if let endRange = scanner[contentStart...].range(of: endTag) {
-            // Found end tag, skip the content
+            let content = String(scanner[contentStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !content.isEmpty {
+                 outputs.append(ToolOutputInfo(content: content, status: status))
+            }
             scanner = String(scanner[endRange.upperBound...])
         } else {
-            // Unclosed, hide everything after start
-            scanner = ""
+            // Unclosed, just hide header
+            scanner = String(scanner[contentStart...])
         }
     }
+
+
 
     private func processThink(in scanner: inout String, start: Range<String.Index>, visible: inout String, thinkingParts: inout [String]) {
         visible += String(scanner[..<start.lowerBound])

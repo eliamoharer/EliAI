@@ -247,6 +247,10 @@ enum MessageFormatting {
             return false
         }
         if content.contains("\\begin{") || content.contains("\\end{") {
+            // Allow small environments in inline math if wrapped in $
+            if delimiter.open == "$" {
+                return true
+            }
             return false
         }
 
