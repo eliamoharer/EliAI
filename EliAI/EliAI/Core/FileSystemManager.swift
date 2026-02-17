@@ -17,7 +17,8 @@ enum FileSystemError: LocalizedError {
 
 @Observable
 class FileSystemManager {
-    let documentsURL: URL
+    var documentsURL: URL
+    var lastModified = Date()
 
     init() {
         documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -43,6 +44,7 @@ class FileSystemManager {
         }
 
         try content.write(to: fileURL, atomically: true, encoding: .utf8)
+        lastModified = Date()
         AppLogger.debug("Wrote file \(path)", category: .fileSystem)
     }
 
@@ -60,11 +62,15 @@ class FileSystemManager {
     func deleteFile(path: String) throws {
         let fileURL = try resolveSafeURL(for: path, isDirectory: false)
         try FileManager.default.removeItem(at: fileURL)
+        lastModified = Date()
         AppLogger.debug("Deleted file \(path)", category: .fileSystem)
     }
 
-    func getAllFilesRecursive() -> [FileItem] {
-        scanDirectory(at: documentsURL)
+    func getAllFilesRecursive() async -> [FileItem] {
+        await Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return [] }
+            return self.scanDirectory(at: self.documentsURL)
+        }.value
     }
 
     private func scanDirectory(at url: URL) -> [FileItem] {

@@ -110,16 +110,20 @@ struct ContentView: View {
                     }
                 }
             }
-            .ignoresSafeArea(edges: .bottom)
+            .ignoresSafeArea(.container, edges: .bottom)
             .sheet(isPresented: $showingNewChatDialog) {
                 NewChatDialog(isPresented: $showingNewChatDialog) { name in
                     chatManager.createNewSession(title: name)
                 }
             }
             .sheet(isPresented: $showingSettings) {
-                NavigationView {
+                NavigationStack {
                     SettingsView(modelDownloader: modelDownloader)
-                        .navigationBarItems(trailing: Button("Done") { showingSettings = false })
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showingSettings = false }
+                            }
+                        }
                 }
             }
             .padding(.bottom, 0)

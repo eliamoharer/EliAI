@@ -45,14 +45,12 @@ enum ModelProfile: String, CaseIterable, Codable {
 
     private func formatChatML(messages: [ChatMessage], systemPrompt: String) -> String {
         var prompt = ""
-        prompt += "<|im_start|>system\n"
-        prompt += systemPrompt
-        prompt += "\n<|im_end|>\n"
+        if !systemPrompt.isEmpty {
+            prompt += "<|im_start|>system\n\(systemPrompt)<|im_end|>\n"
+        }
 
         for message in messages {
-            prompt += "<|im_start|>\(message.role.rawValue)\n"
-            prompt += message.content
-            prompt += "\n<|im_end|>\n"
+            prompt += "<|im_start|>\(message.role.rawValue)\n\(message.content)<|im_end|>\n"
         }
 
         prompt += "<|im_start|>assistant\n"
@@ -60,18 +58,14 @@ enum ModelProfile: String, CaseIterable, Codable {
     }
 
     private func formatGeneric(messages: [ChatMessage], systemPrompt: String) -> String {
-        var prompt = "System: \(systemPrompt)\n\n"
+        var prompt = ""
+        if !systemPrompt.isEmpty {
+             prompt += "System: \(systemPrompt)\n\n"
+        }
+        
         for message in messages {
-            switch message.role {
-            case .user:
-                prompt += "User: \(message.content)\n"
-            case .assistant:
-                prompt += "Assistant: \(message.content)\n"
-            case .system:
-                prompt += "System: \(message.content)\n"
-            case .tool:
-                prompt += "Tool: \(message.content)\n"
-            }
+            let role = message.role == .assistant ? "Assistant" : "User"
+            prompt += "\(role): \(message.content)\n"
         }
         prompt += "Assistant: "
         return prompt

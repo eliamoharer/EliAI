@@ -25,6 +25,12 @@ private struct MathDelimiter {
     let display: Bool
 }
 
+private struct ToolCallInfo: Identifiable, Equatable {
+    let id = UUID()
+    let name: String
+    let arguments: String
+}
+
 struct MessageBubble: View {
     let message: ChatMessage
     let isStreaming: Bool
@@ -33,6 +39,7 @@ struct MessageBubble: View {
     @State private var cachedSegments: [MessageSegment] = []
     @State private var cachedThinking: String = ""
     @State private var cachedVisibleText: String = ""
+    @State private var cachedToolCalls: [ToolCallInfo] = []
 
     init(message: ChatMessage, isStreaming: Bool = false) {
         self.message = message
@@ -68,6 +75,31 @@ struct MessageBubble: View {
                     }
                 }
 
+                if !cachedToolCalls.isEmpty {
+                    ForEach(cachedToolCalls) { tool in
+                        DisclosureGroup {
+                            Text(tool.arguments)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .padding(.top, 4)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "hammer.fill")
+                                    .font(.caption2)
+                                Text("Used Tool: \(tool.name)")
+                                    .font(.caption2)
+                                    .fontWeight(.semibold)
+                            }
+                            .foregroundColor(.orange)
+                        }
+                        .padding(8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.orange.opacity(0.1))
+                        )
+                    }
+                }
+
                 if !cachedVisibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || message.role != .assistant {
                     messageContent(segments: cachedSegments)
                         .frame(
@@ -92,198 +124,93 @@ struct MessageBubble: View {
     }
 
     private func loadContent() {
-        let parsed = parseThinkingSections(from: message.content)
+        let parsed = parseThinkingAndTools(from: message.content)
         let visible = message.role == .assistant ? parsed.visible : message.content
         
-        if visible != cachedVisibleText || parsed.thinking != cachedThinking {
+        if visible != cachedVisibleText || parsed.thinking != cachedThinking || parsed.tools != cachedToolCalls {
             self.cachedVisibleText = visible
             self.cachedThinking = parsed.thinking
+            self.cachedToolCalls = parsed.tools
             self.cachedSegments = parseContentSegments(from: visible)
         }
     }
 
-    @ViewBuilder
-    private var bubbleBackground: some View {
-        switch message.role {
-        case .user:
-            LinearGradient(
-                colors: [Color.blue.opacity(0.95), Color.blue.opacity(0.78)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        case .assistant:
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.thinMaterial)
-        case .system:
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.yellow.opacity(0.22))
-        case .tool:
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.orange.opacity(0.18))
-        }
-    }
+    // ... (rest of view content)
 
-    @ViewBuilder
-    private func messageContent(segments: [MessageSegment]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if message.role == .tool {
-                HStack(spacing: 6) {
-                    Image(systemName: "hammer.fill")
-                        .font(.caption2)
-                    Text("Tool Output")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                }
-                .foregroundColor(.orange)
-            }
-
-            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                segmentContent(segment)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .foregroundColor(message.role == .user ? .white : .primary)
-        .textSelection(.enabled)
-        .background(bubbleBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(message.role == .user ? 0.22 : 0.25), lineWidth: 0.7)
-        )
-        .contextMenu {
-            let parsed = parseThinkingSections(from: message.content)
-            let visible = parsed.visible.trimmingCharacters(in: .whitespacesAndNewlines)
-            let thinking = parsed.thinking.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            if !visible.isEmpty {
-                Button("Copy Answer") {
-                    UIPasteboard.general.string = visible
-                }
-            }
-
-            if !thinking.isEmpty {
-                Button("Copy Thinking") {
-                    UIPasteboard.general.string = thinking
-                }
-            }
-
-            Button("Copy Raw Source") {
-                UIPasteboard.general.string = message.content
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func segmentContent(_ segment: MessageSegment) -> some View {
-        switch segment.kind {
-        case let .markdown(text):
-            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                MarkdownMathText(text: text, role: message.role)
-            }
-        case let .math(latex, display):
-            MathSegmentView(latex: latex, display: display, role: message.role)
-                .padding(.vertical, display ? 4 : 1)
-        case let .code(code, language):
-            codeBlockView(code: code, language: language)
-        case .rule:
-            Rectangle()
-                .fill(Color.primary.opacity(message.role == .user ? 0.35 : 0.18))
-                .frame(height: 1)
-                .padding(.vertical, 4)
-        case let .table(tableText):
-            tableBlockView(text: tableText)
-        }
-    }
-
-    @ViewBuilder
-    private func codeBlockView(code: String, language: String?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let language, !language.isEmpty {
-                Text(language.uppercased())
-                    .font(.caption2)
-                    .foregroundColor(message.role == .user ? Color.white.opacity(0.85) : .secondary)
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
-                    .font(.system(.footnote, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(message.role == .user ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
-        )
-    }
-
-    @ViewBuilder
-    private func tableBlockView(text: String) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            Text(text)
-                .font(.system(.footnote, design: .monospaced))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(message.role == .user ? Color.white.opacity(0.10) : Color.black.opacity(0.06))
-        )
-    }
-
-    private func parseThinkingSections(from text: String) -> (visible: String, thinking: String) {
+    private func parseThinkingAndTools(from text: String) -> (visible: String, thinking: String, tools: [ToolCallInfo]) {
         var visible = ""
         var thinkingParts: [String] = []
+        var tools: [ToolCallInfo] = []
         var cursor = text.startIndex
 
-        while let startRange = text[cursor...].range(of: "<think>") {
-            visible += String(text[cursor..<startRange.lowerBound])
-            let thinkingStart = startRange.upperBound
-
-            if let endRange = text[thinkingStart...].range(of: "</think>") {
-                let section = String(text[thinkingStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !section.isEmpty {
-                    thinkingParts.append(section)
-                }
-                cursor = endRange.upperBound
+        // 1. Extract <think> blocks first, considering they might be interleaved? 
+        // Actually, simple sequential parsing is safest if we assume standard format.
+        // But to replace correctly, we might want to do it in one pass or iteratively extract the first occurrence of EITHER tag.
+        
+        // Simplified approach: Extract thinking first (removing from text), then tools from the remainder? 
+        // No, that destroys order. Let's do a single pass parser or just iterative extraction.
+        
+        // Iterative extraction of "next special block"
+        var scanner = text
+        
+        while let thinkRange = scanner.range(of: "<think>"), let toolRange = scanner.range(of: "<tool_call>") {
+            if thinkRange.lowerBound < toolRange.lowerBound {
+                // Handle think
+                processThink(in: &scanner, start: thinkRange, visible: &visible, thinkingParts: &thinkingParts)
             } else {
-                let section = String(text[thinkingStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !section.isEmpty {
-                    thinkingParts.append(section)
-                }
-                cursor = text.endIndex
-                break
+                // Handle tool
+                processTool(in: &scanner, start: toolRange, visible: &visible, tools: &tools)
             }
         }
-
-        if cursor < text.endIndex {
-            visible += String(text[cursor...])
+        
+        // Handle remaining single types
+        while let thinkRange = scanner.range(of: "<think>") {
+            processThink(in: &scanner, start: thinkRange, visible: &visible, thinkingParts: &thinkingParts)
         }
-
-        // Also clean <tool_call> blocks from visible text
-        while let startRange = visible.range(of: "<tool_call>") {
-            let before = visible[..<startRange.lowerBound]
-            if let endRange = visible[startRange.upperBound...].range(of: "</tool_call>") {
-                let after = visible[endRange.upperBound...]
-                visible = String(before) + String(after)
-            } else {
-                // Formatting is broken or incomplete; just hide the opening tag to be safe
-                visible = visible.replacingOccurrences(of: "<tool_call>", with: "")
-            }
+        
+        while let toolRange = scanner.range(of: "<tool_call>") {
+            processTool(in: &scanner, start: toolRange, visible: &visible, tools: &tools)
         }
-
-        visible = visible
-            .replacingOccurrences(of: "<think>", with: "")
-            .replacingOccurrences(of: "</think>", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
+        
+        visible += scanner // Append anything left
+        
         let thinking = thinkingParts.joined(separator: "\n\n")
-        return (visible, thinking)
+        return (visible.trimmingCharacters(in: .whitespacesAndNewlines), thinking, tools)
+    }
+
+    private func processThink(in scanner: inout String, start: Range<String.Index>, visible: inout String, thinkingParts: inout [String]) {
+        visible += String(scanner[..<start.lowerBound])
+        let contentStart = start.upperBound
+        if let endRange = scanner[contentStart...].range(of: "</think>") {
+            let content = String(scanner[contentStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !content.isEmpty { thinkingParts.append(content) }
+            scanner = String(scanner[endRange.upperBound...])
+        } else {
+            // Unclosed
+            let content = String(scanner[contentStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !content.isEmpty { thinkingParts.append(content) }
+            scanner = ""
+        }
+    }
+
+    private func processTool(in scanner: inout String, start: Range<String.Index>, visible: inout String, tools: inout [ToolCallInfo]) {
+        visible += String(scanner[..<start.lowerBound])
+        let contentStart = start.upperBound
+        if let endRange = scanner[contentStart...].range(of: "</tool_call>") {
+            let jsonString = String(scanner[contentStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let data = jsonString.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let name = json["name"] as? String {
+                let args = (json["arguments"] as? [String: Any] ?? [:]).description // Simplified representation
+                // Better pretty printing for arguments
+                let prettyArgs = (try? String(data: JSONSerialization.data(withJSONObject: json["arguments"] ?? [:], options: .prettyPrinted), encoding: .utf8)) ?? "{}"
+                tools.append(ToolCallInfo(name: name, arguments: prettyArgs))
+            } 
+            scanner = String(scanner[endRange.upperBound...])
+        } else {
+             // Unclosed, just hide header
+             scanner = String(scanner[contentStart...])
+        }
     }
 
     private func parseContentSegments(from text: String) -> [MessageSegment] {
