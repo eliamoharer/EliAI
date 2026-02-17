@@ -285,7 +285,6 @@ struct MessageBubble: View {
         // Iterative extraction of "next special block"
         var scanner = text
         
-        while let thinkRange = scanner.range(of: "<think>"), let toolRange = scanner.range(of: "<tool_call>") {
             if thinkRange.lowerBound < toolRange.lowerBound {
                 // Handle think
                 processThink(in: &scanner, start: thinkRange, visible: &visible, thinkingParts: &thinkingParts)
@@ -304,10 +303,34 @@ struct MessageBubble: View {
             processTool(in: &scanner, start: toolRange, visible: &visible, tools: &tools)
         }
         
+        // NEW: parse and HIDE <tool_result> blocks so they don't leak into chat
+        while let resultRange = scanner.range(of: "<tool_code>") {
+             // We just strip these entirely for now, or we could add them to a "debug" view
+             processHiddenBlock(in: &scanner, start: resultRange, endTag: "</tool_code>", visible: &visible)
+        }
+        while let resultRange = scanner.range(of: "<tool_output>") {
+             processHiddenBlock(in: &scanner, start: resultRange, endTag: "</tool_output>", visible: &visible)
+        }
+        while let resultRange = scanner.range(of: "<tool_result>") {
+             processHiddenBlock(in: &scanner, start: resultRange, endTag: "</tool_result>", visible: &visible)
+        }
+        
         visible += scanner // Append anything left
         
         let thinking = thinkingParts.joined(separator: "\n\n")
         return (visible.trimmingCharacters(in: .whitespacesAndNewlines), thinking, tools)
+    }
+
+    private func processHiddenBlock(in scanner: inout String, start: Range<String.Index>, endTag: String, visible: inout String) {
+        visible += String(scanner[..<start.lowerBound])
+        let contentStart = start.upperBound
+        if let endRange = scanner[contentStart...].range(of: endTag) {
+            // Found end tag, skip the content
+            scanner = String(scanner[endRange.upperBound...])
+        } else {
+            // Unclosed, hide everything after start
+            scanner = ""
+        }
     }
 
     private func processThink(in scanner: inout String, start: Range<String.Index>, visible: inout String, thinkingParts: inout [String]) {
@@ -333,8 +356,8 @@ struct MessageBubble: View {
             if let data = jsonString.data(using: .utf8),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let name = json["name"] as? String {
-                let args = (json["arguments"] as? [String: Any] ?? [:]).description // Simplified representation
-                // Better pretty printing for arguments
+                
+                // Pretty print arguments
                 let prettyArgs = (try? String(data: JSONSerialization.data(withJSONObject: json["arguments"] ?? [:], options: .prettyPrinted), encoding: .utf8)) ?? "{}"
                 tools.append(ToolCallInfo(name: name, arguments: prettyArgs))
             } 

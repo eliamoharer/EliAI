@@ -65,14 +65,16 @@ enum MessageFormatting {
         )
 
         // Force jammed inline list markers into real lines.
+        // EDITED: Made stricter to avoid matching "+ " inside math equations. Added (?<=^|\n) anchor.
         value = value.replacingOccurrences(
-            of: #"(?<=\S)\s+([-*+])\s+(?=(\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]|[A-Za-z]))"#,
-            with: "\n$1 ",
+            of: #"(?<=^|\n)\s*([-*+])\s+(?=(\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]|[A-Za-z]))"#,
+            with: "$1 ",
             options: .regularExpression
         )
+        // EDITED: Made strict for numbered lists too.
         value = value.replacingOccurrences(
-            of: #"(?<=\S)\s+(\d+\.)\s+(?=\S)"#,
-            with: "\n$1 ",
+            of: #"(?<=^|\n)\s+(\d+\.)\s+(?=\S)"#,
+            with: "$1 ",
             options: .regularExpression
         )
 

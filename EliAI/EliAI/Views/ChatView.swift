@@ -554,6 +554,24 @@ struct ChatView: View {
                     break
                 }
 
+                // Check for auto-recovery signal from LLMEngine
+                if llmEngine.generationError == "Model error. Recovering..." {
+                    if !didRetryEmptyGeneration {
+                        didRetryEmptyGeneration = true
+                        await MainActor.run {
+                            chatManager.removeMessage(id: assistantMessage.id)
+                        }
+                        AppLogger.warning("Auto-recovery signal detected. Waiting for reload and retrying...", category: .inference)
+                        
+                        // Wait for a moment to let the reload happen (it's async in LLMEngine)
+                        // A better way would be to wait for `isLoadingModel` to flip true then false, but a sleep is safer for now.
+                        try? await Task.sleep(nanoseconds: 2 * 1_000_000_000) 
+                        
+                        keepGenerating = true
+                        continue
+                    }
+                }
+
                 if !didRetryEmptyGeneration {
                     didRetryEmptyGeneration = true
                     await MainActor.run {

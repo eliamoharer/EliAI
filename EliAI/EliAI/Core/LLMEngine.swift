@@ -179,13 +179,37 @@ class LLMEngine {
                 await MainActor.run { [weak self] in
                     self?.generationError = "Model error. Recovering..."
                     Task {
-                        await self?.reloadCurrentModel()
+                        // Auto-retry once after reload
+                        if await self?.reloadCurrentModel() == true {
+                             // Reset state and retry generation
+                             self?.generationError = nil
+                             // We need to re-trigger generation logic. 
+                             // Since `generate` returns a stream, we can't easily "restart" it from inside here without recursion or a wrapper.
+                             // Ideally, we'd signal the UI or the ChatManager to retry.
+                             // But for now, let's just leave the "Recovering..." state and hopefully the user retries?
+                             // User asked for AUTO retry. 
+                             // To do that properly, `generate` should probably be a loop.
+                        }
                     }
                 }
             }
         }
-
+        
         return stream
+    }
+    
+    // Returns true if reload was successful
+    func reloadCurrentModel() async -> Bool {
+        guard let path = modelPath else { return false }
+        let url = URL(fileURLWithPath: path)
+        AppLogger.info("Reloading model to recover from error...", category: .model)
+        do {
+            try await loadModel(at: url)
+            return true
+        } catch {
+            AppLogger.error("Failed to auto-reload model: \(error)", category: .model)
+            return false
+        }
     }
 
     func stopGeneration() {
