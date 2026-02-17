@@ -916,7 +916,7 @@ private struct MarkdownMathText: UIViewRepresentable {
     private func renderInlineMathImage(latex: String, color: UIColor, fontSize: CGFloat) -> UIImage {
         let label = MTMathUILabel()
         label.backgroundColor = .clear
-        label.latex = sanitizeLatexForSwiftMath(latex)
+        label.latex = LaTeXPreprocessor.preprocess(latex)
         label.font = MTFontManager().font(withName: MathFont.latinModernFont.rawValue, size: fontSize)
         label.labelMode = usesDisplayMathLayout(latex) ? .display : .text
         label.textColor = color
