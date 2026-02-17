@@ -66,11 +66,8 @@ class FileSystemManager {
         AppLogger.debug("Deleted file \(path)", category: .fileSystem)
     }
 
-    func getAllFilesRecursive() async -> [FileItem] {
-        await Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { return [] }
-            return self.scanDirectory(at: self.documentsURL)
-        }.value
+    func getAllFilesRecursive() -> [FileItem] {
+        scanDirectory(at: documentsURL)
     }
 
     private func scanDirectory(at url: URL) -> [FileItem] {

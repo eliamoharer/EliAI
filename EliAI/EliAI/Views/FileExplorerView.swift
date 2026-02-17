@@ -76,14 +76,11 @@ struct FileExplorerView: View {
             .scrollContentBackground(.hidden)
             .background(Color.clear)
             .opacity(isOpaque ? 1.0 : 0.85)
-            .opacity(isOpaque ? 1.0 : 0.85)
-            .task {
-                items = await fileSystem.getAllFilesRecursive()
+            .onAppear {
+                items = fileSystem.getAllFilesRecursive()
             }
             .onChange(of: fileSystem.lastModified) { _, _ in
-                Task {
-                    items = await fileSystem.getAllFilesRecursive()
-                }
+                items = fileSystem.getAllFilesRecursive()
             }
             .navigationDestination(item: $selectedFile) { file in
                 FileDetailView(fileItem: file)
