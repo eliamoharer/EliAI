@@ -135,6 +135,29 @@ struct MessageBubble: View {
         }
     }
 
+    @ViewBuilder
+    private func messageContent(segments: [MessageSegment]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                switch segment.kind {
+                case .markdown(let text):
+                    MarkdownMathText(text: text, role: message.role)
+                        .fixedSize(horizontal: false, vertical: true)
+                case .math(let latex, let display):
+                    MathSegmentView(latex: latex, display: display, role: message.role)
+                case .code(let code, let language):
+                    CodeBlockView(code: code, language: language)
+                case .rule:
+                    Divider()
+                        .overlay(message.role == .user ? Color.white.opacity(0.3) : Color.gray.opacity(0.3))
+                case .table(let tableMarkdown):
+                    MarkdownMathText(text: tableMarkdown, role: message.role)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
     // ... (rest of view content)
 
     private func parseThinkingAndTools(from text: String) -> (visible: String, thinking: String, tools: [ToolCallInfo]) {
@@ -1044,5 +1067,60 @@ private struct LaTeXMathLabel: UIViewRepresentable {
             return CGSize(width: width, height: max(minHeight, size.height))
         }
         return nil
+    }
+}
+
+private struct CodeBlockView: View {
+    let code: String
+    let language: String?
+    
+    @Environment(\.colorScheme) var colorScheme
+    @State private var isCopied = false
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(language?.uppercased() ?? "TEXT")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button(action: {
+                    UIPasteboard.general.string = code
+                    withAnimation {
+                        isCopied = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        isCopied = false
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                        Text(isCopied ? "Copied" : "Copy")
+                    }
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.primary.opacity(0.03))
+            
+            Divider()
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(code)
+                    .font(.system(.footnote, design: .monospaced))
+                    .padding(12)
+            }
+        }
+        .background(Color.primary.opacity(0.02))
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+        )
     }
 }
