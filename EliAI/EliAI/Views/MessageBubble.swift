@@ -587,6 +587,11 @@ struct MessageBubble: View {
 
 }
 
+private struct MathSegmentView: View {
+    let latex: String
+    let display: Bool
+    let role: ChatMessage.Role
+
     var body: some View {
         let preparedLatex = LaTeXPreprocessor.preprocess(latex)
         let mathLabel = LaTeXMathLabel(
