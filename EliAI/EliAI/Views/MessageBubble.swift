@@ -285,11 +285,10 @@ struct MessageBubble: View {
         // Iterative extraction of "next special block"
         var scanner = text
         
+        while let thinkRange = scanner.range(of: "<think>"), let toolRange = scanner.range(of: "<tool_call>") {
             if thinkRange.lowerBound < toolRange.lowerBound {
-                // Handle think
                 processThink(in: &scanner, start: thinkRange, visible: &visible, thinkingParts: &thinkingParts)
             } else {
-                // Handle tool
                 processTool(in: &scanner, start: toolRange, visible: &visible, tools: &tools)
             }
         }
