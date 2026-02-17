@@ -115,28 +115,7 @@ struct MessageBubble: View {
 
                 if !cachedToolOutputs.isEmpty {
                     ForEach(cachedToolOutputs) { output in
-                        DisclosureGroup {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                Text(output.content)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundColor(output.status == .error ? .red : .secondary)
-                                    .padding(.top, 4)
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: output.status == .error ? "exclamationmark.triangle.fill" : "terminal.fill")
-                                    .font(.caption2)
-                                Text(output.status == .error ? "Tool Error" : (output.status == .code ? "Generated Code" : "Tool Result"))
-                                    .font(.caption2)
-                                    .fontWeight(.semibold)
-                            }
-                            .foregroundColor(output.status == .error ? .red : .secondary)
-                        }
-                        .padding(8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(output.status == .error ? Color.red.opacity(0.1) : Color.gray.opacity(0.1))
-                        )
+                        ToolOutputView(output: output)
                     }
                 }
 
@@ -1118,6 +1097,10 @@ private struct MarkdownMathText: UIViewRepresentable {
         if normalized.contains("\\\\") {
             return true
         }
+        // frac requires display mode for proper rendering
+        if normalized.contains("\\frac") {
+            return true
+        }
         return false
     }
 
@@ -1250,5 +1233,145 @@ private struct LaTeXMathLabel: UIViewRepresentable {
             return CGSize(width: width, height: max(minHeight, size.height))
         }
         return nil
+    }
+}
+
+// MARK: - Tool Output View
+private struct ToolOutputView: View {
+    let output: ToolOutputInfo
+    @State private var isExpanded = false
+    
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(output.content)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(textColor)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+            }
+            .background(Color.black.opacity(0.03))
+            .cornerRadius(6)
+            .padding(.top, 6)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: iconName)
+                    .font(.caption2)
+                    .foregroundColor(iconColor)
+                
+                Text(labelText)
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(textColor)
+                
+                Spacer()
+                
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .opacity(0.6)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(backgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(borderColor, lineWidth: 0.5)
+        )
+    }
+    
+    private var iconName: String {
+        switch output.status {
+        case .error:
+            return "exclamationmark.triangle.fill"
+        case .code:
+            return "doc.text.fill"
+        case .success:
+            if output.content.hasPrefix("✅") {
+                return "checkmark.circle.fill"
+            } else if output.content.hasPrefix("📄") {
+                return "doc.text.fill"
+            } else if output.content.hasPrefix("📁") {
+                return "folder.fill"
+            } else if output.content.hasPrefix("🧠") {
+                return "brain.head.fill"
+            } else {
+                return "terminal.fill"
+            }
+        }
+    }
+    
+    private var iconColor: Color {
+        switch output.status {
+        case .error:
+            return .red
+        case .code:
+            return .purple
+        case .success:
+            if output.content.hasPrefix("✅") {
+                return .green
+            } else if output.content.hasPrefix("📄") {
+                return .blue
+            } else if output.content.hasPrefix("📁") {
+                return .orange
+            } else if output.content.hasPrefix("🧠") {
+                return .pink
+            } else {
+                return .secondary
+            }
+        }
+    }
+    
+    private var labelText: String {
+        switch output.status {
+        case .error:
+            return "Tool Error"
+        case .code:
+            return "Generated Code"
+        case .success:
+            if output.content.hasPrefix("✅ File Created") {
+                return "File Created"
+            } else if output.content.hasPrefix("📄 File Contents") {
+                return "File Contents"
+            } else if output.content.hasPrefix("📁 Directory") {
+                return "Directory Listing"
+            } else if output.content.hasPrefix("🧠 Memory") {
+                return "Memory Saved"
+            } else if output.content.hasPrefix("✅ Task") {
+                return "Task Created"
+            } else {
+                return "Tool Result"
+            }
+        }
+    }
+    
+    private var textColor: Color {
+        output.status == .error ? .red : .primary
+    }
+    
+    private var backgroundColor: Color {
+        switch output.status {
+        case .error:
+            return Color.red.opacity(0.08)
+        case .code:
+            return Color.purple.opacity(0.08)
+        case .success:
+            return Color.gray.opacity(0.08)
+        }
+    }
+    
+    private var borderColor: Color {
+        switch output.status {
+        case .error:
+            return Color.red.opacity(0.2)
+        case .code:
+            return Color.purple.opacity(0.2)
+        case .success:
+            return Color.gray.opacity(0.15)
+        }
     }
 }

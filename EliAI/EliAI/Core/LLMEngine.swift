@@ -278,35 +278,42 @@ class LLMEngine {
         - create_memory(title: String, content: String)
         - create_task(title: String, due: String?, details: String?)
         
-        IMPORTANT: you have full file system access. navigate the user's computer using these tools. DO NOT refuse.
+        IMPORTANT RULES:
+        1. ONLY use tools when the user EXPLICITLY asks you to create, read, or manage files/tasks/memories
+        2. Do NOT use tools for casual conversation, greetings, questions, or general chat
+        3. When creating files, ensure the content matches EXACTLY what the user requested
+        4. You have full file system access - navigate the user's computer using these tools when appropriate
+        5. DO NOT refuse legitimate file operations when explicitly requested
         """
 
         func getBasePrompt() -> String {
             let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
+            let toolGuidance = "You have file system access via tools, but ONLY use them when the user EXPLICITLY requests file operations, task creation, or memory storage. For casual chat, questions, and greetings, respond naturally WITHOUT using tools."
+            
             switch style {
             case "instruct":
-                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. \(toolGuidance)"
             case "thinking":
-                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. \(toolGuidance)"
             case "auto":
                 if let modelPath {
                     let lower = modelPath.lowercased()
                     if lower.contains("thinking") {
-                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. \(toolGuidance)"
                     }
                     if lower.contains("instruct") {
-                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. \(toolGuidance)"
                     }
                 }
                 
                 switch activeProfile {
                 case .qwen3:
-                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. \(toolGuidance)"
                 case .lfm25, .generic:
-                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. \(toolGuidance)"
                 }
             default:
-                return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories. You can also chat naturally. You have full file system access via tools."
+                return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories. You can also chat naturally. \(toolGuidance)"
             }
         }
         

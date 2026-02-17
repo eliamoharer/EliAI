@@ -47,36 +47,60 @@ class AgentManager {
         do {
             switch toolCall.name {
             case "create_file":
-                guard let path = toolCall.arguments["path"], let content = toolCall.arguments["content"] else { return "Error: Missing arguments" }
+                guard let path = toolCall.arguments["path"], let content = toolCall.arguments["content"] else { 
+                    return "❌ Error: Missing required arguments 'path' or 'content'" 
+                }
                 try fileSystem.createFile(path: path, content: content)
                 AppLogger.info("Tool executed: create_file path=\(path)", category: .agent)
-                return "File created at \(path)"
+                return """
+                ✅ File Created Successfully
+                
+                Path: \(path)
+                Size: \(content.count) characters
+                """
 
             case "read_file":
-                guard let path = toolCall.arguments["path"] else { return "Error: Missing arguments" }
+                guard let path = toolCall.arguments["path"] else { 
+                    return "❌ Error: Missing required argument 'path'" 
+                }
                 let content = try fileSystem.readFile(path: path)
                 AppLogger.info("Tool executed: read_file path=\(path)", category: .agent)
-                return content
+                return """
+                📄 File Contents: \(path)
+                
+                \(content)
+                """
 
             case "list_files":
                 let directory = toolCall.arguments["directory"] ?? ""
                 let files = try fileSystem.listFiles(directory: directory)
                 AppLogger.info("Tool executed: list_files directory=\(directory)", category: .agent)
-                return files.joined(separator: "\n")
+                let fileList = files.isEmpty ? "  (empty directory)" : files.map { "  • \($0)" }.joined(separator: "\n")
+                return """
+                📁 Directory Listing: \(directory.isEmpty ? "root" : directory)
+                
+                Found \(files.count) item(s):
+                \(fileList)
+                """
 
             case "create_memory":
                 guard let title = toolCall.arguments["title"], let content = toolCall.arguments["content"] else {
-                    return "Error: Missing arguments"
+                    return "❌ Error: Missing required arguments 'title' or 'content'"
                 }
                 let slug = safeSlug(from: title)
                 let path = "memory/\(slug).md"
                 try fileSystem.createFile(path: path, content: content)
                 AppLogger.info("Tool executed: create_memory title=\(title)", category: .agent)
-                return "Memory created: \(path)"
+                return """
+                🧠 Memory Created
+                
+                Title: \(title)
+                Path: \(path)
+                """
 
             case "create_task":
                 guard let title = toolCall.arguments["title"] else {
-                    return "Error: Missing arguments"
+                    return "❌ Error: Missing required argument 'title'"
                 }
                 let due = toolCall.arguments["due"] ?? "unscheduled"
                 let details = toolCall.arguments["details"] ?? ""
@@ -91,15 +115,21 @@ class AgentManager {
                 let path = "tasks/\(slug).md"
                 try fileSystem.createFile(path: path, content: content)
                 AppLogger.info("Tool executed: create_task title=\(title)", category: .agent)
-                return "Task created: \(path)"
+                return """
+                ✅ Task Created
+                
+                Title: \(title)
+                Due: \(due)
+                Path: \(path)
+                """
 
             default:
                 AppLogger.warning("Unknown tool requested: \(toolCall.name)", category: .agent)
-                return "Error: Unknown tool \(toolCall.name)"
+                return "❌ Error: Unknown tool '\(toolCall.name)'"
             }
         } catch {
             AppLogger.error("Tool execution failed for \(toolCall.name): \(error.localizedDescription)", category: .agent)
-            return "Error: \(error.localizedDescription)"
+            return "❌ Error: \(error.localizedDescription)"
         }
     }
 
