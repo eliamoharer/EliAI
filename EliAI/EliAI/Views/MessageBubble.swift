@@ -587,99 +587,8 @@ struct MessageBubble: View {
 
 }
 
-private func sanitizeLatexForSwiftMath(_ latex: String) -> String {
-    var value = latex
-    value = value.replacingOccurrences(of: "\\dfrac", with: "\\frac")
-    value = value.replacingOccurrences(of: "\\tfrac", with: "\\frac")
-    value = value.replacingOccurrences(of: "\\displaystyle", with: "")
-    value = unwrapMathCommand(named: "boxed", in: value)
-    value = unwrapMathCommand(named: "text", in: value)
-    value = unwrapMathCommand(named: "mathrm", in: value)
-    return value
-}
-
-private func unwrapMathCommand(named command: String, in source: String) -> String {
-    let needle = "\\\(command)"
-    var output = ""
-    var cursor = source.startIndex
-
-    while let match = source[cursor...].range(of: needle) {
-        output += String(source[cursor..<match.lowerBound])
-        var search = match.upperBound
-        while search < source.endIndex, source[search].isWhitespace {
-            search = source.index(after: search)
-        }
-
-        guard search < source.endIndex, source[search] == "{" else {
-            output += needle
-            cursor = match.upperBound
-            continue
-        }
-
-        guard let close = matchingClosingBrace(in: source, openingBraceAt: search) else {
-            output += String(source[match.lowerBound...])
-            cursor = source.endIndex
-            break
-        }
-
-        let innerStart = source.index(after: search)
-        output += String(source[innerStart..<close])
-        cursor = source.index(after: close)
-    }
-
-    if cursor < source.endIndex {
-        output += String(source[cursor...])
-    }
-    return output
-}
-
-private func matchingClosingBrace(in source: String, openingBraceAt openingIndex: String.Index) -> String.Index? {
-    var depth = 0
-    var index = openingIndex
-
-    while index < source.endIndex {
-        let character = source[index]
-        if character == "{" && !isEscapedCharacter(in: source, at: index) {
-            depth += 1
-        } else if character == "}" && !isEscapedCharacter(in: source, at: index) {
-            depth -= 1
-            if depth == 0 {
-                return index
-            }
-        }
-        index = source.index(after: index)
-    }
-    return nil
-}
-
-private func isEscapedCharacter(in source: String, at index: String.Index) -> Bool {
-    guard index > source.startIndex else {
-        return false
-    }
-
-    var slashCount = 0
-    var cursor = source.index(before: index)
-    while true {
-        if source[cursor] == "\\" {
-            slashCount += 1
-        } else {
-            break
-        }
-        if cursor == source.startIndex {
-            break
-        }
-        cursor = source.index(before: cursor)
-    }
-    return slashCount % 2 == 1
-}
-
-private struct MathSegmentView: View {
-    let latex: String
-    let display: Bool
-    let role: ChatMessage.Role
-
     var body: some View {
-        let preparedLatex = sanitizeLatexForSwiftMath(latex)
+        let preparedLatex = LaTeXPreprocessor.preprocess(latex)
         let mathLabel = LaTeXMathLabel(
             equation: preparedLatex,
             font: .latinModernFont,
@@ -747,6 +656,7 @@ private struct MarkdownMathText: UIViewRepresentable {
         view.setContentHuggingPriority(.required, for: .vertical)
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.setContentCompressionResistancePriority(.required, for: .vertical)
+        view.dataDetectorTypes = []
         return view
     }
 

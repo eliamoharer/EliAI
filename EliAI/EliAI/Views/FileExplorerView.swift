@@ -63,6 +63,13 @@ struct FileExplorerView: View {
                         onSelectFile(item)
                     }
                 }
+                
+                // Add bottom padding to allow scrolling past floating UI
+                Section {
+                    Color.clear
+                        .frame(height: 80)
+                        .listRowBackground(Color.clear)
+                }
             }
             .navigationTitle("Brain")
             .listStyle(SidebarListStyle())

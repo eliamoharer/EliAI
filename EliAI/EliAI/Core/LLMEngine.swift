@@ -225,32 +225,61 @@ class LLMEngine {
             return override
         }
 
+        let tools = """
+        You have access to the following tools. To use a tool, output XML tags like <tool_call>...</tool_call>.
+        
+        Available tools:
+        1. create_file(path: String, content: String)
+        2. read_file(path: String)
+        3. list_files(directory: String)
+        4. create_memory(title: String, content: String)
+        5. create_task(title: String, due: String?, details: String?)
+
+        Example usage:
+        <tool_call>
+        {
+          "name": "create_file",
+          "arguments": {
+            "path": "notes/hello.txt",
+            "content": "Hello world"
+          }
+        }
+        </tool_call>
+        """
+
         let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
+        let basePrompt: String
+        
         switch style {
         case "instruct":
-            return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+            basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
         case "thinking":
-            return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+            basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
         case "auto":
             if let modelPath {
                 let lower = modelPath.lowercased()
                 if lower.contains("thinking") {
-                    return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+                    basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+                } else if lower.contains("instruct") {
+                    basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+                } else {
+                    basePrompt = "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
                 }
-                if lower.contains("instruct") {
-                    return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
-                }
+            } else {
+                 basePrompt = "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
             }
-
+            
             switch activeProfile {
             case .qwen3:
-                return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+                basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
             case .lfm25, .generic:
-                return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+                basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
             }
         default:
-            return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
+            basePrompt = "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
         }
+        
+        return basePrompt + "\n\n" + tools
     }
 
     private func extractStringResponse(from value: Any) -> String? {
