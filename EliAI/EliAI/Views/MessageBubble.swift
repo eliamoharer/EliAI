@@ -115,35 +115,22 @@ struct MessageBubble: View {
 
                 if !cachedToolOutputs.isEmpty {
                     ForEach(cachedToolOutputs) { output in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 6) {
-                                Image(systemName: output.status == .error ? "exclamationmark.triangle.fill" : (output.status == .code ? "chevron.left.forwardslash.chevron.right" : "doc.text.fill"))
-                                    .font(.caption)
-                                Text(output.status == .error ? "Error" : (output.status == .code ? "Code" : "Result"))
-                                    .font(.caption)
+                        DisclosureGroup {
+                            toolOutputContent(output: output)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: output.status == .error ? "exclamationmark.triangle.fill" : "terminal.fill")
+                                    .font(.caption2)
+                                Text(output.status == .error ? "Tool Error" : (output.status == .code ? "Generated Code" : "Tool Result"))
+                                    .font(.caption2)
                                     .fontWeight(.semibold)
-                                Spacer()
                             }
-                            .foregroundColor(output.status == .error ? .red : .orange)
-                            
-                            Divider()
-                                .foregroundColor(Color.primary.opacity(0.1))
-                            
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                Text(output.content)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundColor(.primary)
-                            }
-                            .frame(maxHeight: 150)
+                            .foregroundColor(output.status == .error ? .red : .secondary)
                         }
-                        .padding(10)
+                        .padding(8)
                         .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(Color.primary.opacity(0.05))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(output.status == .error ? Color.red.opacity(0.3) : Color.orange.opacity(0.3), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(output.status == .error ? Color.red.opacity(0.1) : Color.gray.opacity(0.1))
                         )
                     }
                 }
@@ -316,6 +303,84 @@ struct MessageBubble: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(message.role == .user ? Color.white.opacity(0.10) : Color.black.opacity(0.06))
         )
+    }
+    
+    @ViewBuilder
+    private func toolOutputContent(output: ToolOutputInfo) -> some View {
+        // Parse tool output through the same pipeline as regular messages
+        let segments = parseContentSegments(from: output.content)
+        
+        if segments.count == 1, case let .markdown(text) = segments.first?.kind {
+            // Simple text output - use monospace font for better tool output readability
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(text)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(output.status == .error ? .red : .primary)
+                    .padding(.top, 4)
+            }
+        } else {
+            // Rich content with code blocks, math, tables, etc.
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                    toolOutputSegmentContent(segment, isError: output.status == .error)
+                }
+            }
+            .padding(.top, 4)
+        }
+    }
+    
+    @ViewBuilder
+    private func toolOutputSegmentContent(_ segment: MessageSegment, isError: Bool) -> some View {
+        switch segment.kind {
+        case let .markdown(text):
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // Use monospace for tool output text to match terminal style
+                Text(text)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(isError ? .red : .primary)
+            }
+        case let .math(latex, display):
+            // Allow math rendering in tool outputs
+            MathSegmentView(latex: latex, display: display, role: .assistant)
+                .padding(.vertical, display ? 2 : 0)
+        case let .code(code, language):
+            // Code blocks in tool output
+            VStack(alignment: .leading, spacing: 4) {
+                if let language, !language.isEmpty {
+                    Text(language.uppercased())
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(code)
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.black.opacity(0.06))
+            )
+        case .rule:
+            Rectangle()
+                .fill(Color.primary.opacity(0.15))
+                .frame(height: 1)
+                .padding(.vertical, 2)
+        case let .table(tableText):
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(tableText)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .padding(6)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.black.opacity(0.04))
+            )
+        }
     }
 
     private func parseThinkingAndTools(from text: String) -> (visible: String, thinking: String, tools: [ToolCallInfo], toolOutputs: [ToolOutputInfo]) {
@@ -1075,14 +1140,19 @@ private struct MarkdownMathText: UIViewRepresentable {
     }
 
     private func renderInlineMathImage(latex: String, color: UIColor, fontSize: CGFloat) -> UIImage {
+        let processedLatex = LaTeXPreprocessor.preprocess(latex)
+        
+        // Wrap fractions with \textstyle to ensure proper inline rendering
+        let finalLatex = ensureProperInlineStyle(for: processedLatex)
+        
         let label = MTMathUILabel()
         label.backgroundColor = .clear
-        label.latex = LaTeXPreprocessor.preprocess(latex)
+        label.latex = finalLatex
         label.font = MTFontManager().font(withName: MathFont.latinModernFont.rawValue, size: fontSize)
-        label.labelMode = usesDisplayMathLayout(latex) ? .display : .text
+        label.labelMode = usesDisplayMathLayout(processedLatex) ? .display : .text
         label.textColor = color
         label.textAlignment = .left
-        label.contentInsets = MTEdgeInsets(top: 1, left: 0, bottom: 1, right: 0)
+        label.contentInsets = MTEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
 
         let measured = label.sizeThatFits(
             CGSize(
@@ -1093,8 +1163,8 @@ private struct MarkdownMathText: UIViewRepresentable {
         if !measured.width.isFinite || !measured.height.isFinite || measured.width <= 1 || measured.height <= 1 {
             return renderFallbackInlineTextImage(latex: latex, color: color, fontSize: fontSize)
         }
-        let width = max(6, ceil(measured.width))
-        let height = max(ceil(fontSize * 1.2), ceil(measured.height))
+        let width = max(6, ceil(measured.width) + 4)
+        let height = max(ceil(fontSize * 1.4), ceil(measured.height) + 4)
         let renderSize = CGSize(width: width, height: height)
 
         let format = UIGraphicsImageRendererFormat.default()
@@ -1104,9 +1174,9 @@ private struct MarkdownMathText: UIViewRepresentable {
 
         return renderer.image { context in
             label.frame = CGRect(
-                x: 0,
-                y: max(0, (renderSize.height - measured.height) / 2),
-                width: width,
+                x: 2,
+                y: max(2, (renderSize.height - measured.height) / 2),
+                width: measured.width,
                 height: measured.height
             )
             label.setNeedsLayout()
@@ -1114,34 +1184,52 @@ private struct MarkdownMathText: UIViewRepresentable {
             label.layer.render(in: context.cgContext)
         }
     }
+    
+    /// Ensures inline math uses proper styling for fractions and operators
+    private func ensureProperInlineStyle(for latex: String) -> String {
+        var result = latex
+        
+        // For inline math with fractions, wrap with \textstyle if not already styled
+        if result.contains("\\frac") && !result.contains("\\textstyle") && !result.contains("\\displaystyle") {
+            // Check if it's a simple inline fraction
+            let fracCount = result.components(separatedBy: "\\frac").count - 1
+            if fracCount <= 2 && !result.contains("\\begin{") && !result.contains("\\\\") {
+                // Simple inline fraction - textstyle is appropriate
+                result = "\\textstyle " + result
+            }
+        }
+        
+        return result
+    }
 
     private func usesDisplayMathLayout(_ latex: String) -> Bool {
         let normalized = latex.replacingOccurrences(of: " ", with: "")
-        // Environments that need display mode
+        
+        // Display environments always use display mode
         if normalized.contains("\\begin{cases}") || normalized.contains("\\begin{cases*}") {
             return true
         }
         if normalized.contains("\\begin{aligned}") || normalized.contains("\\begin{matrix}") {
             return true
         }
-        // Multi-line content
+        if normalized.contains("\\begin{align}") || normalized.contains("\\begin{align*}") {
+            return true
+        }
+        if normalized.contains("\\begin{equation}") || normalized.contains("\\begin{equation*}") {
+            return true
+        }
+        if normalized.contains("\\begin{gather}") || normalized.contains("\\begin{gather*}") {
+            return true
+        }
+        // Multi-line equations need display mode
         if normalized.contains("\\\\") {
             return true
         }
-        // Fractions need display mode for proper rendering
-        if normalized.contains("\\frac") || normalized.contains("\\dfrac") || normalized.contains("\\tfrac") {
+        // Limits, sums, integrals with limits usually need display mode
+        if normalized.contains("\\lim\\limits") || normalized.contains("\\sum\\limits") || normalized.contains("\\int\\limits") {
             return true
         }
-        // Sum, product, integral with limits render better in display mode
-        if normalized.contains("\\sum") || normalized.contains("\\prod") || normalized.contains("\\int") {
-            if normalized.contains("_") || normalized.contains("^") {
-                return true
-            }
-        }
-        // Square roots with fractions inside
-        if normalized.contains("\\sqrt") && normalized.contains("\\frac") {
-            return true
-        }
+        // But simple \frac should use text mode for inline
         return false
     }
 
