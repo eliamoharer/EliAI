@@ -135,7 +135,139 @@ struct MessageBubble: View {
         }
     }
 
-    // ... (rest of view content)
+    @ViewBuilder
+    private var bubbleBackground: some View {
+        switch message.role {
+        case .user:
+            LinearGradient(
+                colors: [Color.blue.opacity(0.95), Color.blue.opacity(0.78)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .assistant:
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.thinMaterial)
+        case .system:
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.yellow.opacity(0.22))
+        case .tool:
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.orange.opacity(0.18))
+        }
+    }
+
+    @ViewBuilder
+    private func messageContent(segments: [MessageSegment]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if message.role == .tool {
+                HStack(spacing: 6) {
+                    Image(systemName: "hammer.fill")
+                        .font(.caption2)
+                    Text("Tool Output")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                }
+                .foregroundColor(.orange)
+            }
+
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                segmentContent(segment)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .foregroundColor(message.role == .user ? .white : .primary)
+        .textSelection(.enabled)
+        .background(bubbleBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(message.role == .user ? 0.22 : 0.25), lineWidth: 0.7)
+        )
+        .contextMenu {
+            let parsed = parseThinkingAndTools(from: message.content)
+            let visible = parsed.visible.trimmingCharacters(in: .whitespacesAndNewlines)
+            let thinking = parsed.thinking.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !visible.isEmpty {
+                Button("Copy Answer") {
+                    UIPasteboard.general.string = visible
+                }
+            }
+
+            if !thinking.isEmpty {
+                Button("Copy Thinking") {
+                    UIPasteboard.general.string = thinking
+                }
+            }
+
+            Button("Copy Raw Source") {
+                UIPasteboard.general.string = message.content
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func segmentContent(_ segment: MessageSegment) -> some View {
+        switch segment.kind {
+        case let .markdown(text):
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                MarkdownMathText(text: text, role: message.role)
+            }
+        case let .math(latex, display):
+            MathSegmentView(latex: latex, display: display, role: message.role)
+                .padding(.vertical, display ? 4 : 1)
+        case let .code(code, language):
+            codeBlockView(code: code, language: language)
+        case .rule:
+            Rectangle()
+                .fill(Color.primary.opacity(message.role == .user ? 0.35 : 0.18))
+                .frame(height: 1)
+                .padding(.vertical, 4)
+        case let .table(tableText):
+            tableBlockView(text: tableText)
+        }
+    }
+
+    @ViewBuilder
+    private func codeBlockView(code: String, language: String?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let language, !language.isEmpty {
+                Text(language.uppercased())
+                    .font(.caption2)
+                    .foregroundColor(message.role == .user ? Color.white.opacity(0.85) : .secondary)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(code)
+                    .font(.system(.footnote, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(message.role == .user ? Color.white.opacity(0.12) : Color.black.opacity(0.08))
+        )
+    }
+
+    @ViewBuilder
+    private func tableBlockView(text: String) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Text(text)
+                .font(.system(.footnote, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(message.role == .user ? Color.white.opacity(0.10) : Color.black.opacity(0.06))
+        )
+    }
 
     private func parseThinkingAndTools(from text: String) -> (visible: String, thinking: String, tools: [ToolCallInfo]) {
         var visible = ""
