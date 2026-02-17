@@ -247,39 +247,36 @@ class LLMEngine {
         </tool_call>
         """
 
-        let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
-        let basePrompt: String
-        
-        switch style {
-        case "instruct":
-            basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
-        case "thinking":
-            basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
-        case "auto":
-            if let modelPath {
-                let lower = modelPath.lowercased()
-                if lower.contains("thinking") {
-                    basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
-                } else if lower.contains("instruct") {
-                    basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
-                } else {
-                    basePrompt = "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
+        func getBasePrompt() -> String {
+            let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
+            switch style {
+            case "instruct":
+                return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+            case "thinking":
+                return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+            case "auto":
+                if let modelPath {
+                    let lower = modelPath.lowercased()
+                    if lower.contains("thinking") {
+                        return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+                    }
+                    if lower.contains("instruct") {
+                        return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+                    }
                 }
-            } else {
-                 basePrompt = "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
+                
+                switch activeProfile {
+                case .qwen3:
+                    return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+                case .lfm25, .generic:
+                    return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+                }
+            default:
+                return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
             }
-            
-            switch activeProfile {
-            case .qwen3:
-                basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
-            case .lfm25, .generic:
-                basePrompt = "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
-            }
-        default:
-            basePrompt = "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
         }
         
-        return basePrompt + "\n\n" + tools
+        return getBasePrompt() + "\n\n" + tools
     }
 
     private func extractStringResponse(from value: Any) -> String? {
