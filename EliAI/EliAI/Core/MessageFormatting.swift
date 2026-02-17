@@ -16,14 +16,18 @@ enum MessageFormatting {
         InlineMathDelimiter(open: "$", close: "$")
     ]
 
-    static func normalizeMarkdown(_ text: String) -> String {
-        var value = text
+    static func normalizeNewlines(_ text: String) -> String {
+        return text
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\\n", with: "\n")
             .replacingOccurrences(of: "<br />", with: "\n")
             .replacingOccurrences(of: "<br/>", with: "\n")
             .replacingOccurrences(of: "<br>", with: "\n")
+    }
+
+    static func normalizeMarkdown(_ text: String) -> String {
+        var value = normalizeNewlines(text)
 
         // Move inline headings onto their own line when models emit "... ### Header".
         value = value.replacingOccurrences(

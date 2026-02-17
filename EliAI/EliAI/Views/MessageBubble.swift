@@ -265,6 +265,18 @@ struct MessageBubble: View {
             visible += String(text[cursor...])
         }
 
+        // Also clean <tool_call> blocks from visible text
+        while let startRange = visible.range(of: "<tool_call>") {
+            let before = visible[..<startRange.lowerBound]
+            if let endRange = visible[startRange.upperBound...].range(of: "</tool_call>") {
+                let after = visible[endRange.upperBound...]
+                visible = String(before) + String(after)
+            } else {
+                // Formatting is broken or incomplete; just hide the opening tag to be safe
+                visible = visible.replacingOccurrences(of: "<tool_call>", with: "")
+            }
+        }
+
         visible = visible
             .replacingOccurrences(of: "<think>", with: "")
             .replacingOccurrences(of: "</think>", with: "")
@@ -678,9 +690,17 @@ private struct MarkdownMathText: UIViewRepresentable {
     }
 
     private func makeAttributedText(coordinator: Coordinator) -> NSAttributedString {
-        let normalized = MessageFormatting.normalizeMarkdown(text.isEmpty ? " " : text)
-        let extracted = MessageFormatting.extractInlineMathPlaceholders(from: normalized)
-        let mutable = buildStructuredAttributedText(from: extracted.markdown)
+        // 1. Normalize newlines first so regex scanners work predictably
+        let cleanText = MessageFormatting.normalizeNewlines(text.isEmpty ? " " : text)
+        
+        // 2. Extract math tokens from the raw(ish) text -> Protects math from markdown normalization
+        let extracted = MessageFormatting.extractInlineMathPlaceholders(from: cleanText)
+        
+        // 3. Normalize the markdown (which now has ZZZMATHPLACEHOLDERs that won't trigger list logic)
+        let normalizedMarkdown = MessageFormatting.normalizeMarkdown(extracted.markdown)
+        
+        // 4. Build structure
+        let mutable = buildStructuredAttributedText(from: normalizedMarkdown)
         let fullRange = NSRange(location: 0, length: mutable.length)
         if role == .user {
             mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)

@@ -14,7 +14,7 @@ struct LaTeXPreprocessor {
         
         // Unwrap commands that simply wrap content but aren't supported by basic renderers
         value = unwrapMathCommand(named: "boxed", in: value)
-        value = unwrapMathCommand(named: "text", in: value)
+        // value = unwrapMathCommand(named: "text", in: value) // IOSMath supports \text, unwrapping ruins spacing
         value = unwrapMathCommand(named: "mathrm", in: value)
         value = unwrapMathCommand(named: "mathbf", in: value)
         value = unwrapMathCommand(named: "textit", in: value)

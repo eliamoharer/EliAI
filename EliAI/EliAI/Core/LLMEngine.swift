@@ -226,16 +226,9 @@ class LLMEngine {
         }
 
         let tools = """
-        You have access to the following tools. To use a tool, output XML tags like <tool_call>...</tool_call>.
-        
-        Available tools:
-        1. create_file(path: String, content: String)
-        2. read_file(path: String)
-        3. list_files(directory: String)
-        4. create_memory(title: String, content: String)
-        5. create_task(title: String, due: String?, details: String?)
+        You have access to the following tools. Use them ONLY when necessary to fulfill a user request (e.g., creating a file). If the user just wants to chat, do not use tools.
 
-        Example usage:
+        To use a tool, you MUST use the following XML format strictly:
         <tool_call>
         {
           "name": "create_file",
@@ -245,34 +238,41 @@ class LLMEngine {
           }
         }
         </tool_call>
+        
+        Available tools:
+        1. create_file(path: String, content: String)
+        2. read_file(path: String)
+        3. list_files(directory: String)
+        4. create_memory(title: String, content: String)
+        5. create_task(title: String, due: String?, details: String?)
         """
 
         func getBasePrompt() -> String {
             let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
             switch style {
             case "instruct":
-                return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. Only use tools if the user explicitly asks for a file or task operation."
             case "thinking":
-                return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. Only use tools if the user explicitly asks for a file or task operation."
             case "auto":
                 if let modelPath {
                     let lower = modelPath.lowercased()
                     if lower.contains("thinking") {
-                        return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. Only use tools if the user explicitly asks for a file or task operation."
                     }
                     if lower.contains("instruct") {
-                        return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. Only use tools if the user explicitly asks for a file or task operation."
                     }
                 }
                 
                 switch activeProfile {
                 case .qwen3:
-                    return "You are EliAI, an intelligent and helpful assistant for files and tasks. If you provide reasoning, place it inside <think>...</think> and then provide the final answer."
+                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. Only use tools if the user explicitly asks for a file or task operation."
                 case .lfm25, .generic:
-                    return "You are EliAI, an intelligent and helpful assistant for files and tasks. Answer directly and do not output <think> tags."
+                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. Only use tools if the user explicitly asks for a file or task operation."
                 }
             default:
-                return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
+                return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories. You can also chat naturally."
             }
         }
         
