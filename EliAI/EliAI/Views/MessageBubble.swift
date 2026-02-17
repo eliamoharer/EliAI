@@ -115,7 +115,36 @@ struct MessageBubble: View {
 
                 if !cachedToolOutputs.isEmpty {
                     ForEach(cachedToolOutputs) { output in
-                        ToolOutputView(output: output)
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: output.status == .error ? "exclamationmark.triangle.fill" : (output.status == .code ? "chevron.left.forwardslash.chevron.right" : "doc.text.fill"))
+                                    .font(.caption)
+                                Text(output.status == .error ? "Error" : (output.status == .code ? "Code" : "Result"))
+                                    .font(.caption)
+                                    .fontWeight(.semibold)
+                                Spacer()
+                            }
+                            .foregroundColor(output.status == .error ? .red : .orange)
+                            
+                            Divider()
+                                .foregroundColor(Color.primary.opacity(0.1))
+                            
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                Text(output.content)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(.primary)
+                            }
+                            .frame(maxHeight: 150)
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.primary.opacity(0.05))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(output.status == .error ? Color.red.opacity(0.3) : Color.orange.opacity(0.3), lineWidth: 1)
+                        )
                     }
                 }
 
@@ -1088,17 +1117,29 @@ private struct MarkdownMathText: UIViewRepresentable {
 
     private func usesDisplayMathLayout(_ latex: String) -> Bool {
         let normalized = latex.replacingOccurrences(of: " ", with: "")
+        // Environments that need display mode
         if normalized.contains("\\begin{cases}") || normalized.contains("\\begin{cases*}") {
             return true
         }
         if normalized.contains("\\begin{aligned}") || normalized.contains("\\begin{matrix}") {
             return true
         }
+        // Multi-line content
         if normalized.contains("\\\\") {
             return true
         }
-        // frac requires display mode for proper rendering
-        if normalized.contains("\\frac") {
+        // Fractions need display mode for proper rendering
+        if normalized.contains("\\frac") || normalized.contains("\\dfrac") || normalized.contains("\\tfrac") {
+            return true
+        }
+        // Sum, product, integral with limits render better in display mode
+        if normalized.contains("\\sum") || normalized.contains("\\prod") || normalized.contains("\\int") {
+            if normalized.contains("_") || normalized.contains("^") {
+                return true
+            }
+        }
+        // Square roots with fractions inside
+        if normalized.contains("\\sqrt") && normalized.contains("\\frac") {
             return true
         }
         return false
@@ -1233,145 +1274,5 @@ private struct LaTeXMathLabel: UIViewRepresentable {
             return CGSize(width: width, height: max(minHeight, size.height))
         }
         return nil
-    }
-}
-
-// MARK: - Tool Output View
-private struct ToolOutputView: View {
-    let output: ToolOutputInfo
-    @State private var isExpanded = false
-    
-    var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(output.content)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(textColor)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            }
-            .background(Color.black.opacity(0.03))
-            .cornerRadius(6)
-            .padding(.top, 6)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: iconName)
-                    .font(.caption2)
-                    .foregroundColor(iconColor)
-                
-                Text(labelText)
-                    .font(.caption2)
-                    .fontWeight(.semibold)
-                    .foregroundColor(textColor)
-                
-                Spacer()
-                
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .opacity(0.6)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(backgroundColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(borderColor, lineWidth: 0.5)
-        )
-    }
-    
-    private var iconName: String {
-        switch output.status {
-        case .error:
-            return "exclamationmark.triangle.fill"
-        case .code:
-            return "doc.text.fill"
-        case .success:
-            if output.content.hasPrefix("✅") {
-                return "checkmark.circle.fill"
-            } else if output.content.hasPrefix("📄") {
-                return "doc.text.fill"
-            } else if output.content.hasPrefix("📁") {
-                return "folder.fill"
-            } else if output.content.hasPrefix("🧠") {
-                return "brain.head.fill"
-            } else {
-                return "terminal.fill"
-            }
-        }
-    }
-    
-    private var iconColor: Color {
-        switch output.status {
-        case .error:
-            return .red
-        case .code:
-            return .purple
-        case .success:
-            if output.content.hasPrefix("✅") {
-                return .green
-            } else if output.content.hasPrefix("📄") {
-                return .blue
-            } else if output.content.hasPrefix("📁") {
-                return .orange
-            } else if output.content.hasPrefix("🧠") {
-                return .pink
-            } else {
-                return .secondary
-            }
-        }
-    }
-    
-    private var labelText: String {
-        switch output.status {
-        case .error:
-            return "Tool Error"
-        case .code:
-            return "Generated Code"
-        case .success:
-            if output.content.hasPrefix("✅ File Created") {
-                return "File Created"
-            } else if output.content.hasPrefix("📄 File Contents") {
-                return "File Contents"
-            } else if output.content.hasPrefix("📁 Directory") {
-                return "Directory Listing"
-            } else if output.content.hasPrefix("🧠 Memory") {
-                return "Memory Saved"
-            } else if output.content.hasPrefix("✅ Task") {
-                return "Task Created"
-            } else {
-                return "Tool Result"
-            }
-        }
-    }
-    
-    private var textColor: Color {
-        output.status == .error ? .red : .primary
-    }
-    
-    private var backgroundColor: Color {
-        switch output.status {
-        case .error:
-            return Color.red.opacity(0.08)
-        case .code:
-            return Color.purple.opacity(0.08)
-        case .success:
-            return Color.gray.opacity(0.08)
-        }
-    }
-    
-    private var borderColor: Color {
-        switch output.status {
-        case .error:
-            return Color.red.opacity(0.2)
-        case .code:
-            return Color.purple.opacity(0.2)
-        case .success:
-            return Color.gray.opacity(0.15)
-        }
     }
 }

@@ -531,8 +531,12 @@ struct ChatView: View {
             keepGenerating = false
 
             var fullResponse = ""
-            var assistantMessage = ChatMessage(role: .assistant, content: "")
-            chatManager.addMessage(assistantMessage)
+            let assistantMessageId = UUID()
+            var assistantMessage = ChatMessage(id: assistantMessageId, role: .assistant, content: "")
+            
+            await MainActor.run {
+                chatManager.addMessage(assistantMessage)
+            }
 
             let history = chatManager.currentSession?.messages.dropLast()
             let stream = llmEngine.generate(messages: Array(history ?? []))
@@ -549,7 +553,7 @@ struct ChatView: View {
                 if llmEngine.lastGenerationWasCancelled {
                     await MainActor.run {
                         AppLogger.debug("Generation ended with cancellation; removing empty assistant placeholder.", category: .inference)
-                        chatManager.removeMessage(id: assistantMessage.id)
+                        chatManager.removeMessage(id: assistantMessageId)
                     }
                     break
                 }
@@ -559,7 +563,7 @@ struct ChatView: View {
                     if !didRetryEmptyGeneration {
                         didRetryEmptyGeneration = true
                         await MainActor.run {
-                            chatManager.removeMessage(id: assistantMessage.id)
+                            chatManager.removeMessage(id: assistantMessageId)
                         }
                         AppLogger.warning("Auto-recovery signal detected. Waiting for reload and retrying...", category: .inference)
                         
@@ -584,7 +588,7 @@ struct ChatView: View {
                 if !didRetryEmptyGeneration {
                     didRetryEmptyGeneration = true
                     await MainActor.run {
-                        chatManager.removeMessage(id: assistantMessage.id)
+                        chatManager.removeMessage(id: assistantMessageId)
                     }
                     AppLogger.warning("Empty generation detected; retrying once automatically.", category: .inference)
                     keepGenerating = true
@@ -612,12 +616,16 @@ struct ChatView: View {
 
             if let toolOutput = await agentManager.processToolCalls(in: fullResponse) {
                 let toolMessage = ChatMessage(role: .tool, content: toolOutput)
-                chatManager.addMessage(toolMessage)
+                await MainActor.run {
+                    chatManager.addMessage(toolMessage)
+                }
                 keepGenerating = true
             }
 
             if let session = chatManager.currentSession {
-                chatManager.saveSession(session)
+                await MainActor.run {
+                    chatManager.saveSession(session)
+                }
             }
         }
 
@@ -626,7 +634,9 @@ struct ChatView: View {
                 role: .system,
                 content: "Agent loop reached safety step limit. Please continue with a follow-up prompt."
             )
-            chatManager.addMessage(warning)
+            await MainActor.run {
+                chatManager.addMessage(warning)
+            }
         }
     }
 

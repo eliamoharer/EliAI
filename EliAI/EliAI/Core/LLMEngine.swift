@@ -260,8 +260,8 @@ class LLMEngine {
         }
 
         let tools = """
-        To use a tool, output a JSON object wrapped in <tool_call> tags. Example:
-        <tool_call>
+        To use a tool, output a JSON object wrapped in \u{1F554} tags. Example:
+        \u{1F554}
         {
           "name": "create_file",
           "arguments": {
@@ -269,51 +269,44 @@ class LLMEngine {
             "content": "Hello world"
           }
         }
-        </tool_call>
+        \u{1F555}
         
         Available Tools:
-        - create_file(path: String, content: String)
-        - read_file(path: String)
-        - list_files(directory: String)
-        - create_memory(title: String, content: String)
-        - create_task(title: String, due: String?, details: String?)
+        - create_file(path: String, content: String) - Create a new file
+        - read_file(path: String) - Read contents of a file
+        - list_files(directory: String) - List files in a directory
+        - create_memory(title: String, content: String) - Store a memory note
+        - create_task(title: String, due: String?, details: String?) - Create a task
         
-        IMPORTANT RULES:
-        1. ONLY use tools when the user EXPLICITLY asks you to create, read, or manage files/tasks/memories
-        2. Do NOT use tools for casual conversation, greetings, questions, or general chat
-        3. When creating files, ensure the content matches EXACTLY what the user requested
-        4. You have full file system access - navigate the user's computer using these tools when appropriate
-        5. DO NOT refuse legitimate file operations when explicitly requested
+        Only use these tools when the user explicitly asks you to perform file operations, save information, or manage tasks. For normal conversations, just respond naturally.
         """
 
         func getBasePrompt() -> String {
             let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
-            let toolGuidance = "You have file system access via tools, but ONLY use them when the user EXPLICITLY requests file operations, task creation, or memory storage. For casual chat, questions, and greetings, respond naturally WITHOUT using tools."
-            
             switch style {
             case "instruct":
-                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. \(toolGuidance)"
+                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have access to file system tools, but only use them when the user explicitly requests file operations, task management, or memory storage."
             case "thinking":
-                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. \(toolGuidance)"
+                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside \u{1F914}...\u{1F914}. You have access to file system tools, but only use them when the user explicitly requests file operations, task management, or memory storage."
             case "auto":
                 if let modelPath {
                     let lower = modelPath.lowercased()
                     if lower.contains("thinking") {
-                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. \(toolGuidance)"
+                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside \u{1F914}...\u{1F914}. You have access to file system tools, but only them when the user explicitly requests file operations, task management, or memory storage."
                     }
                     if lower.contains("instruct") {
-                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. \(toolGuidance)"
+                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have access to file system tools, but only them when the user explicitly requests file operations, task management, or memory storage."
                     }
                 }
                 
                 switch activeProfile {
                 case .qwen3:
-                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. \(toolGuidance)"
+                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside \u{1F914}...\u{1F914}. You have access to file system tools, but only them when the user explicitly requests file operations, task management, or memory storage."
                 case .lfm25, .generic:
-                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. \(toolGuidance)"
+                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have access to file system tools, but only use them when the user explicitly requests file operations, task management, or memory storage."
                 }
             default:
-                return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories. You can also chat naturally. \(toolGuidance)"
+                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have access to file system tools, but only use them when the user explicitly requests file operations, task management, or memory storage."
             }
         }
         

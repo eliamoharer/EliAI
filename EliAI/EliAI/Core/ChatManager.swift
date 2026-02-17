@@ -57,13 +57,13 @@ class ChatManager {
     }
     
     func addMessage(_ message: ChatMessage) {
-        guard var session = currentSession else { return }
+        guard let session = currentSession else { return }
         session.messages.append(message)
         session.updatedAt = Date()
-        currentSession = session
         
         if let index = sessions.firstIndex(where: { $0.id == session.id }) {
-            sessions[index] = session
+            sessions[index].messages = session.messages
+            sessions[index].updatedAt = session.updatedAt
         }
         
         saveSession(session)
@@ -71,13 +71,13 @@ class ChatManager {
     }
 
     func updateLastMessage(_ message: ChatMessage, persist: Bool = true) {
-        guard var session = currentSession, !session.messages.isEmpty else { return }
+        guard let session = currentSession, !session.messages.isEmpty else { return }
         session.messages[session.messages.count - 1] = message
         session.updatedAt = Date()
-        currentSession = session
 
         if let index = sessions.firstIndex(where: { $0.id == session.id }) {
-            sessions[index] = session
+            sessions[index].messages = session.messages
+            sessions[index].updatedAt = session.updatedAt
         }
 
         if persist {
