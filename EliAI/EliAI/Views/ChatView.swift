@@ -563,18 +563,25 @@ struct ChatView: View {
                         }
                         AppLogger.warning("Auto-recovery signal detected. Waiting for reload and retrying...", category: .inference)
                         
-                        // Wait for a moment to ensure the reload task has started
-                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        // Wait for a moment to ensure the reload task has started (increased from 0.5s to 2.0s)
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
                         
                         // Wait for model to finish loading
                         var waitAttempts = 0
-                        while llmEngine.isLoadingModel && waitAttempts < 60 { // Wait up to 30s
+                        // Wait up to 60s (120 * 0.5s)
+                        while (llmEngine.isLoadingModel || !llmEngine.isLoaded) && waitAttempts < 120 {
                             try? await Task.sleep(nanoseconds: 500_000_000)
                             waitAttempts += 1
                         }
                         
+                        if !llmEngine.isLoaded {
+                             AppLogger.error("Model failed to reload during auto-recovery.", category: .inference)
+                             // Let it fall through to error message
+                             break 
+                        }
+                        
                         // Brief cool-down after load
-                         try? await Task.sleep(nanoseconds: 500_000_000) 
+                         try? await Task.sleep(nanoseconds: 1_000_000_000) 
                         
                         keepGenerating = true
                         continue

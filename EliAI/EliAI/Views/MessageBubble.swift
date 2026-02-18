@@ -116,7 +116,18 @@ struct MessageBubble: View {
                 if !cachedToolOutputs.isEmpty {
                     ForEach(cachedToolOutputs) { output in
                         DisclosureGroup {
-                            toolOutputContent(output: output)
+                            VStack(alignment: .leading, spacing: 0) {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    Text(output.content)
+                                        .font(.system(.footnote, design: .monospaced))
+                                        .foregroundColor(output.status == .error ? .red : .primary)
+                                        .padding(10)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.black.opacity(0.05))
+                            .cornerRadius(8)
+                            .padding(.top, 4)
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: output.status == .error ? "exclamationmark.triangle.fill" : "terminal.fill")
@@ -304,84 +315,6 @@ struct MessageBubble: View {
                 .fill(message.role == .user ? Color.white.opacity(0.10) : Color.black.opacity(0.06))
         )
     }
-    
-    @ViewBuilder
-    private func toolOutputContent(output: ToolOutputInfo) -> some View {
-        // Parse tool output through the same pipeline as regular messages
-        let segments = parseContentSegments(from: output.content)
-        
-        if segments.count == 1, case let .markdown(text) = segments.first?.kind {
-            // Simple text output - use monospace font for better tool output readability
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(text)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(output.status == .error ? .red : .primary)
-                    .padding(.top, 4)
-            }
-        } else {
-            // Rich content with code blocks, math, tables, etc.
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                    toolOutputSegmentContent(segment, isError: output.status == .error)
-                }
-            }
-            .padding(.top, 4)
-        }
-    }
-    
-    @ViewBuilder
-    private func toolOutputSegmentContent(_ segment: MessageSegment, isError: Bool) -> some View {
-        switch segment.kind {
-        case let .markdown(text):
-            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                // Use monospace for tool output text to match terminal style
-                Text(text)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(isError ? .red : .primary)
-            }
-        case let .math(latex, display):
-            // Allow math rendering in tool outputs
-            MathSegmentView(latex: latex, display: display, role: .assistant)
-                .padding(.vertical, display ? 2 : 0)
-        case let .code(code, language):
-            // Code blocks in tool output
-            VStack(alignment: .leading, spacing: 4) {
-                if let language, !language.isEmpty {
-                    Text(language.uppercased())
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(code)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-            }
-            .padding(8)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.black.opacity(0.06))
-            )
-        case .rule:
-            Rectangle()
-                .fill(Color.primary.opacity(0.15))
-                .frame(height: 1)
-                .padding(.vertical, 2)
-        case let .table(tableText):
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(tableText)
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-            }
-            .padding(6)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.black.opacity(0.04))
-            )
-        }
-    }
 
     private func parseThinkingAndTools(from text: String) -> (visible: String, thinking: String, tools: [ToolCallInfo], toolOutputs: [ToolOutputInfo]) {
         var visible = ""
@@ -390,17 +323,10 @@ struct MessageBubble: View {
         var toolOutputs: [ToolOutputInfo] = []
         var scanner = text
         
-        // Unicode tag characters (matching LLMEngine)
-        let thinkOpen = "\u{10C800}"
-        let thinkClose = "\u{10C801}"
-        let toolOpen = "\u{10C7E0}"
-        let toolClose = "\u{10C7E1}"
-        
         // Iterative extraction of "next special block"
         // We look for the earliest occurrence of any tag
         while true {
-            // Support both new Unicode tags and legacy formats
-            let tags = [thinkOpen, "Semik", toolOpen, "Parms", "<tool_output>", "<tool_code>", "<tool_result>"]
+            let tags = ["<think>", "<tool_call>", "<tool_output>", "<tool_code>", "<tool_result>"]
             var earliestRange: Range<String.Index>?
             var earliestTag: String?
             
@@ -418,10 +344,10 @@ struct MessageBubble: View {
             }
             
             switch tag {
-            case thinkOpen, "Semik":
-                processThink(in: &scanner, start: range, thinkOpen: thinkOpen, thinkClose: thinkClose, visible: &visible, thinkingParts: &thinkingParts)
-            case toolOpen, "Parms":
-                processTool(in: &scanner, start: range, toolOpen: toolOpen, toolClose: toolClose, visible: &visible, tools: &tools)
+            case "<think>":
+                processThink(in: &scanner, start: range, visible: &visible, thinkingParts: &thinkingParts)
+            case "<tool_call>":
+                processTool(in: &scanner, start: range, visible: &visible, tools: &tools)
             case "<tool_output>":
                 processToolOutput(in: &scanner, start: range, endTag: "</tool_output>", status: .success, visible: &visible, outputs: &toolOutputs)
             case "<tool_result>":
@@ -464,21 +390,10 @@ struct MessageBubble: View {
 
 
 
-    private func processThink(in scanner: inout String, start: Range<String.Index>, thinkOpen: String, thinkClose: String, visible: inout String, thinkingParts: inout [String]) {
+    private func processThink(in scanner: inout String, start: Range<String.Index>, visible: inout String, thinkingParts: inout [String]) {
         visible += String(scanner[..<start.lowerBound])
         let contentStart = start.upperBound
-        
-        // Support both new Unicode close tag and legacy format
-        let closeTags = [thinkClose, " IMU"]
-        var endRange: Range<String.Index>?
-        for closeTag in closeTags {
-            if let found = scanner[contentStart...].range(of: closeTag) {
-                endRange = found
-                break
-            }
-        }
-        
-        if let endRange = endRange {
+        if let endRange = scanner[contentStart...].range(of: "</think>") {
             let content = String(scanner[contentStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
             if !content.isEmpty { thinkingParts.append(content) }
             scanner = String(scanner[endRange.upperBound...])
@@ -490,23 +405,38 @@ struct MessageBubble: View {
         }
     }
 
-    private func processTool(in scanner: inout String, start: Range<String.Index>, toolOpen: String, toolClose: String, visible: inout String, tools: inout [ToolCallInfo]) {
+    private func processTool(in scanner: inout String, start: Range<String.Index>, visible: inout String, tools: inout [ToolCallInfo]) {
         visible += String(scanner[..<start.lowerBound])
         let contentStart = start.upperBound
-        
-        // Support both new Unicode close tag and legacy format
-        let closeTags = [toolClose, " tarmi"]
-        var endRange: Range<String.Index>?
-        for closeTag in closeTags {
-            if let found = scanner[contentStart...].range(of: closeTag) {
-                endRange = found
-                break
-            }
-        }
-        
-        if let endRange = endRange {
+        if let endRange = scanner[contentStart...].range(of: "</tool_call>") {
             let jsonString = String(scanner[contentStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if let data = jsonString.data(using: .utf8),
+            
+            // HEURISTIC: Fix common LaTeX/JSON escaping issues directly in the string before parsing.
+            // Models often output "\frac" in JSON strings which Swift's JSONDecoder reads as control char \f (form feed) + "rac".
+            // We forcefully double-escape backslashes that look like start of LaTeX commands.
+            
+            // 1. naive replacer for specific known problem commands
+            var sanitized = jsonString
+                .replacingOccurrences(of: "\\frac", with: "\\\\frac")
+                .replacingOccurrences(of: "\\begin", with: "\\\\begin")
+                .replacingOccurrences(of: "\\end", with: "\\\\end")
+                .replacingOccurrences(of: "\\text", with: "\\\\text")
+                .replacingOccurrences(of: "\\left", with: "\\\\left")
+                .replacingOccurrences(of: "\\right", with: "\\\\right")
+                .replacingOccurrences(of: "\\sqrt", with: "\\\\sqrt")
+                .replacingOccurrences(of: "\\alpha", with: "\\\\alpha")
+                .replacingOccurrences(of: "\\beta", with: "\\\\beta")
+                .replacingOccurrences(of: "\\gamma", with: "\\\\gamma")
+                .replacingOccurrences(of: "\\theta", with: "\\\\theta")
+                .replacingOccurrences(of: "\\pi", with: "\\\\pi")
+                .replacingOccurrences(of: "\\sigma", with: "\\\\sigma")
+                .replacingOccurrences(of: "\\infty", with: "\\\\infty")
+                .replacingOccurrences(of: "\\int", with: "\\\\int")
+                .replacingOccurrences(of: "\\sum", with: "\\\\sum")
+                .replacingOccurrences(of: "\\prod", with: "\\\\prod")
+                .replacingOccurrences(of: "\\partial", with: "\\\\partial")
+
+            if let data = sanitized.data(using: .utf8),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let name = json["name"] as? String {
                 
@@ -1169,19 +1099,14 @@ private struct MarkdownMathText: UIViewRepresentable {
     }
 
     private func renderInlineMathImage(latex: String, color: UIColor, fontSize: CGFloat) -> UIImage {
-        let processedLatex = LaTeXPreprocessor.preprocess(latex)
-        
-        // Wrap fractions with \textstyle to ensure proper inline rendering
-        let finalLatex = ensureProperInlineStyle(for: processedLatex)
-        
         let label = MTMathUILabel()
         label.backgroundColor = .clear
-        label.latex = finalLatex
+        label.latex = LaTeXPreprocessor.preprocess(latex)
         label.font = MTFontManager().font(withName: MathFont.latinModernFont.rawValue, size: fontSize)
-        label.labelMode = usesDisplayMathLayout(processedLatex) ? .display : .text
+        label.labelMode = usesDisplayMathLayout(latex) ? .display : .text
         label.textColor = color
         label.textAlignment = .left
-        label.contentInsets = MTEdgeInsets(top: 2, left: 2, bottom: 2, right: 2)
+        label.contentInsets = MTEdgeInsets(top: 1, left: 0, bottom: 1, right: 0)
 
         let measured = label.sizeThatFits(
             CGSize(
@@ -1192,8 +1117,8 @@ private struct MarkdownMathText: UIViewRepresentable {
         if !measured.width.isFinite || !measured.height.isFinite || measured.width <= 1 || measured.height <= 1 {
             return renderFallbackInlineTextImage(latex: latex, color: color, fontSize: fontSize)
         }
-        let width = max(6, ceil(measured.width) + 4)
-        let height = max(ceil(fontSize * 1.4), ceil(measured.height) + 4)
+        let width = max(6, ceil(measured.width))
+        let height = max(ceil(fontSize * 1.2), ceil(measured.height))
         let renderSize = CGSize(width: width, height: height)
 
         let format = UIGraphicsImageRendererFormat.default()
@@ -1203,9 +1128,9 @@ private struct MarkdownMathText: UIViewRepresentable {
 
         return renderer.image { context in
             label.frame = CGRect(
-                x: 2,
-                y: max(2, (renderSize.height - measured.height) / 2),
-                width: measured.width,
+                x: 0,
+                y: max(0, (renderSize.height - measured.height) / 2),
+                width: width,
                 height: measured.height
             )
             label.setNeedsLayout()
@@ -1213,52 +1138,18 @@ private struct MarkdownMathText: UIViewRepresentable {
             label.layer.render(in: context.cgContext)
         }
     }
-    
-    /// Ensures inline math uses proper styling for fractions and operators
-    private func ensureProperInlineStyle(for latex: String) -> String {
-        var result = latex
-        
-        // For inline math with fractions, wrap with \textstyle if not already styled
-        if result.contains("\\frac") && !result.contains("\\textstyle") && !result.contains("\\displaystyle") {
-            // Check if it's a simple inline fraction
-            let fracCount = result.components(separatedBy: "\\frac").count - 1
-            if fracCount <= 2 && !result.contains("\\begin{") && !result.contains("\\\\") {
-                // Simple inline fraction - textstyle is appropriate
-                result = "\\textstyle " + result
-            }
-        }
-        
-        return result
-    }
 
     private func usesDisplayMathLayout(_ latex: String) -> Bool {
         let normalized = latex.replacingOccurrences(of: " ", with: "")
-        
-        // Display environments always use display mode
         if normalized.contains("\\begin{cases}") || normalized.contains("\\begin{cases*}") {
             return true
         }
         if normalized.contains("\\begin{aligned}") || normalized.contains("\\begin{matrix}") {
             return true
         }
-        if normalized.contains("\\begin{align}") || normalized.contains("\\begin{align*}") {
-            return true
-        }
-        if normalized.contains("\\begin{equation}") || normalized.contains("\\begin{equation*}") {
-            return true
-        }
-        if normalized.contains("\\begin{gather}") || normalized.contains("\\begin{gather*}") {
-            return true
-        }
-        // Multi-line equations need display mode
         if normalized.contains("\\\\") {
             return true
         }
-        // Limits, sums, integrals with limits usually need display mode
-        if normalized.contains("\\lim\\limits") || normalized.contains("\\sum\\limits") || normalized.contains("\\int\\limits") {
-            return true
-        }
-        // But simple \frac should use text mode for inline
         return false
     }
 

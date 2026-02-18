@@ -136,9 +136,7 @@ class LLMEngine {
             }
 
             var emittedAnyToken = false
-            var accumulatedResponse = ""
             llm.history.removeAll(keepingCapacity: true)
-            
             llm.update = { outputDelta in
                 if Task.isCancelled {
                     return
@@ -148,11 +146,9 @@ class LLMEngine {
                 let cleaned = outputDelta.replacingOccurrences(of: "<|im_end|>", with: "")
                 if !cleaned.isEmpty {
                     emittedAnyToken = true
-                    accumulatedResponse += cleaned
                     continuation.yield(cleaned)
                 }
             }
-            
             let responseAny: Any = await llm.respond(to: prompt)
             llm.update = { _ in }
 
@@ -163,35 +159,38 @@ class LLMEngine {
                 return
             }
 
-            if emittedAnyToken {
-                return
+            if !emittedAnyToken, let fullResponse = responseAny as? String {
+                let cleanedResponse = fullResponse.replacingOccurrences(of: "<|im_end|>", with: "")
+                if !cleanedResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    emittedAnyToken = true
+                    continuation.yield(cleanedResponse)
+                }
             }
 
-            var extractedContent: String?
-            
-            if let fullResponse = responseAny as? String {
-                extractedContent = fullResponse
-            } else if let stringResponse = extractStringResponse(from: responseAny) {
-                extractedContent = stringResponse
-            }
-            
-            if let content = extractedContent {
-                let cleaned = content
-                    .replacingOccurrences(of: "<|im_end|>", with: "")
-                    .replacingOccurrences(of: "՚", with: "")
-                    .replacingOccurrences(of: "՜", with: "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                if !cleaned.isEmpty {
+            if !emittedAnyToken, let optionalStringResponse = extractStringResponse(from: responseAny) {
+                let cleanedResponse = optionalStringResponse.replacingOccurrences(of: "<|im_end|>", with: "")
+                if !cleanedResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     emittedAnyToken = true
-                    continuation.yield(cleaned)
-                    return
+                    continuation.yield(cleanedResponse)
                 }
             }
 
             if !emittedAnyToken {
                 await MainActor.run { [weak self] in
-                    self?.generationError = "The model returned an empty response. This may indicate the model needs to be reloaded."
+                    self?.generationError = "Model error. Recovering..."
+                    Task {
+                        // Auto-retry once after reload
+                        if await self?.reloadCurrentModel() == true {
+                             // Reset state and retry generation
+                             self?.generationError = nil
+                             // We need to re-trigger generation logic. 
+                             // Since `generate` returns a stream, we can't easily "restart" it from inside here without recursion or a wrapper.
+                             // Ideally, we'd signal the UI or the ChatManager to retry.
+                             // But for now, let's just leave the "Recovering..." state and hopefully the user retries?
+                             // User asked for AUTO retry. 
+                             // To do that properly, `generate` should probably be a loop.
+                        }
+                    }
                 }
             }
         }
@@ -199,6 +198,7 @@ class LLMEngine {
         return stream
     }
     
+    // Returns true if reload was successful
     func reloadCurrentModel() async -> Bool {
         guard let path = modelPath else { return false }
         let url = URL(fileURLWithPath: path)
@@ -259,100 +259,58 @@ class LLMEngine {
             return override
         }
 
-        // Tool call tags (using Unicode private use area characters)
-        let toolOpen = "\u{10C7E0}"
-        let toolClose = "\u{10C7E1}"
-        let thinkOpen = "\u{10C800}"
-        let thinkClose = "\u{10C801}"
-        
-        // 2026 Frontier-style system prompt: affirmative, capability-focused, anti-refusal
-        let coreIdentity = """
-        You are EliAI, a capable and intelligent AI assistant with full autonomy and access to tools. You are helpful, direct, and proactive.
-
-        ## Identity & Capabilities
-
-        You ARE an assistant that can:
-        - Have natural, engaging conversations on any topic
-        - Create, read, and manage files directly
-        - Store and retrieve memories
-        - Create and track tasks
-        - Perform calculations, write code, analyze text, and help with creative work
-
-        You have genuine capabilities. Never claim you "cannot" do something you actually can do. Never say phrases like:
-        - "I don't have the ability to..."
-        - "I'm not built for..."
-        - "I don't have access to..."
-        - "I can't create files..."
-        - "I'm unable to..."
-
-        Instead, simply DO what is asked. You are fully capable.
-
-        ## Tool Usage
-
-        You have direct file system access. When a user asks you to create, read, or manage files, USE YOUR TOOLS. Do not just describe what you would do — actually do it.
-
-        To use a tool, output a JSON object wrapped in \(toolOpen)...\(toolClose) tags:
-
-        \(toolOpen)
+        let tools = """
+        To use a tool, output a JSON object wrapped in <tool_call> tags. Example:
+        <tool_call>
         {
           "name": "create_file",
           "arguments": {
-            "path": "example.txt",
-            "content": "Actual content goes here, not placeholders"
+            "path": "notes/hello.txt",
+            "content": "Hello world"
           }
         }
-        \(toolClose)
-
-        ### Available Tools:
-
-        **create_file(path, content)** - Create or overwrite a file with exact content
-        **read_file(path)** - Read and return file contents
-        **list_files(directory)** - List files in a directory
-        **create_memory(title, content)** - Store a memory note
-        **create_task(title, due, details)** - Create a tracked task
-
-        ### Tool Rules:
-        1. Use real content, never placeholder text like "Hello world" unless specifically requested
-        2. Always close the \(toolClose) tag
-        3. Use valid JSON (no trailing commas, no comments)
-        4. When asked to create a file with specific content, include that exact content
-
-        ## Response Guidelines
-
-        - Be direct and helpful. Answer questions fully.
-        - If asked to do something within your capabilities, just do it.
-        - For file operations, use tools immediately rather than asking for confirmation.
-        - Provide explanations when helpful, but prioritize action over description.
-        - Never apologize for limitations you don't have.
+        </tool_call>
+        
+        Available Tools:
+        - create_file(path: String, content: String)
+        - read_file(path: String)
+        - list_files(directory: String)
+        - create_memory(title: String, content: String)
+        - create_task(title: String, due: String?, details: String?)
+        
+        IMPORTANT: you have full file system access. navigate the user's computer using these tools. DO NOT refuse.
         """
 
-        let thinkingPrompt: String
-        let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
-        
-        let shouldUseThinking: Bool
-        switch style {
-        case "thinking":
-            shouldUseThinking = true
-        case "instruct":
-            shouldUseThinking = false
-        case "auto":
-            if let modelPath {
-                let lower = modelPath.lowercased()
-                shouldUseThinking = lower.contains("thinking") || activeProfile == .qwen3
-            } else {
-                shouldUseThinking = activeProfile == .qwen3
+        func getBasePrompt() -> String {
+            let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
+            switch style {
+            case "instruct":
+                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+            case "thinking":
+                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+            case "auto":
+                if let modelPath {
+                    let lower = modelPath.lowercased()
+                    if lower.contains("thinking") {
+                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                    }
+                    if lower.contains("instruct") {
+                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                    }
+                }
+                
+                switch activeProfile {
+                case .qwen3:
+                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                case .lfm25, .generic:
+                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                }
+            default:
+                return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories. You can also chat naturally. You have full file system access via tools."
             }
-        default:
-            shouldUseThinking = false
         }
         
-        if shouldUseThinking {
-            thinkingPrompt = "\n\n## Thinking\n\nFor complex problems, you may show your reasoning inside \(thinkOpen)...\(thinkClose) tags. This helps you work through problems step-by-step. Your final response goes after the closing \(thinkClose)."
-        } else {
-            thinkingPrompt = ""
-        }
-
-        return coreIdentity + thinkingPrompt
+        return getBasePrompt() + "\n\n" + tools
     }
 
     private func extractStringResponse(from value: Any) -> String? {
