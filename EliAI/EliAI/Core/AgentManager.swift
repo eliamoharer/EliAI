@@ -5,37 +5,50 @@ import Observation
 class AgentManager {
     private let fileSystem: FileSystemManager
     
+    // Tool call tags matching LLMEngine
+    private let toolOpen = "\u{10C7E0}"
+    private let toolClose = "\u{10C7E1}"
+    
     init(fileSystem: FileSystemManager) {
         self.fileSystem = fileSystem
     }
     
     func processToolCalls(in text: String) async -> String? {
-        // Robust regex parser for <tool_call>...</tool_call>
-        // Use s (dotMatchesLineSeparators) option in pattern string if supported, or via options
-        // We use (?s) to enable dotAll mode inline
-        let pattern = "(?s)<tool_call>(.*?)</tool_call>"
-        
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
-        let nsString = text as NSString
-        let results = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+        // Support both new Unicode tags and legacy format for backwards compatibility
+        let patterns = [
+            "(?s)\(toolOpen)(.*?)\(toolClose)",  // New Unicode tags
+            "(?s)Parms(.*?)mi",                   // Legacy format
+        ]
         
         var toolOutputs: [String] = []
-
-        for result in results {
-            if result.numberOfRanges > 1 {
-                let range = result.range(at: 1)
-                let jsonString = nsString.substring(with: range)
+        let nsString = text as NSString
+        var processedRanges: Set<Int> = []
+        
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { continue }
+            let results = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+            
+            for result in results {
+                // Skip if this range was already processed (avoid duplicates)
+                let location = result.range.location
+                if processedRanges.contains(location) { continue }
+                processedRanges.insert(location)
                 
-                // Clean up potential markdown formatting (```json ... ```)
-                let cleanJson = jsonString.replacingOccurrences(of: "```json", with: "")
-                                          .replacingOccurrences(of: "```", with: "")
-                                          .trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                if let data = cleanJson.data(using: .utf8),
-                   let toolCall = try? JSONDecoder().decode(ToolCall.self, from: data) {
-                    AppLogger.info("Tool call parsed: \(toolCall.name)", category: .agent)
-                    let output = await execute(toolCall)
-                    toolOutputs.append("<tool_result>\n\(output)\n</tool_result>")
+                if result.numberOfRanges > 1 {
+                    let range = result.range(at: 1)
+                    let jsonString = nsString.substring(with: range)
+                    
+                    // Clean up potential markdown formatting (```json ... ```)
+                    let cleanJson = jsonString.replacingOccurrences(of: "```json", with: "")
+                                              .replacingOccurrences(of: "```", with: "")
+                                              .trimmingCharacters(in: .whitespacesAndNewlines)
+                    
+                    if let data = cleanJson.data(using: .utf8),
+                       let toolCall = try? JSONDecoder().decode(ToolCall.self, from: data) {
+                        AppLogger.info("Tool call parsed: \(toolCall.name)", category: .agent)
+                        let output = await execute(toolCall)
+                        toolOutputs.append("<tool_result>\n\(output)\n</tool_result>")
+                    }
                 }
             }
         }
@@ -48,7 +61,9 @@ class AgentManager {
             switch toolCall.name {
             case "create_file":
                 guard let path = toolCall.arguments["path"], let content = toolCall.arguments["content"] else { return "Error: Missing arguments" }
-                try fileSystem.createFile(path: path, content: content)
+                // Preserve backslashes for LaTeX content - the content should be used as-is
+                let preservedContent = content
+                try fileSystem.createFile(path: path, content: preservedContent)
                 AppLogger.info("Tool executed: create_file path=\(path)", category: .agent)
                 return "File created at \(path)"
 

@@ -390,10 +390,17 @@ struct MessageBubble: View {
         var toolOutputs: [ToolOutputInfo] = []
         var scanner = text
         
+        // Unicode tag characters (matching LLMEngine)
+        let thinkOpen = "\u{10C800}"
+        let thinkClose = "\u{10C801}"
+        let toolOpen = "\u{10C7E0}"
+        let toolClose = "\u{10C7E1}"
+        
         // Iterative extraction of "next special block"
         // We look for the earliest occurrence of any tag
         while true {
-            let tags = ["<think>", "<tool_call>", "<tool_output>", "<tool_code>", "<tool_result>"]
+            // Support both new Unicode tags and legacy formats
+            let tags = [thinkOpen, "Semik", toolOpen, "Parms", "<tool_output>", "<tool_code>", "<tool_result>"]
             var earliestRange: Range<String.Index>?
             var earliestTag: String?
             
@@ -411,10 +418,10 @@ struct MessageBubble: View {
             }
             
             switch tag {
-            case "<think>":
-                processThink(in: &scanner, start: range, visible: &visible, thinkingParts: &thinkingParts)
-            case "<tool_call>":
-                processTool(in: &scanner, start: range, visible: &visible, tools: &tools)
+            case thinkOpen, "Semik":
+                processThink(in: &scanner, start: range, thinkOpen: thinkOpen, thinkClose: thinkClose, visible: &visible, thinkingParts: &thinkingParts)
+            case toolOpen, "Parms":
+                processTool(in: &scanner, start: range, toolOpen: toolOpen, toolClose: toolClose, visible: &visible, tools: &tools)
             case "<tool_output>":
                 processToolOutput(in: &scanner, start: range, endTag: "</tool_output>", status: .success, visible: &visible, outputs: &toolOutputs)
             case "<tool_result>":
@@ -457,10 +464,21 @@ struct MessageBubble: View {
 
 
 
-    private func processThink(in scanner: inout String, start: Range<String.Index>, visible: inout String, thinkingParts: inout [String]) {
+    private func processThink(in scanner: inout String, start: Range<String.Index>, thinkOpen: String, thinkClose: String, visible: inout String, thinkingParts: inout [String]) {
         visible += String(scanner[..<start.lowerBound])
         let contentStart = start.upperBound
-        if let endRange = scanner[contentStart...].range(of: "</think>") {
+        
+        // Support both new Unicode close tag and legacy format
+        let closeTags = [thinkClose, " IMU"]
+        var endRange: Range<String.Index>?
+        for closeTag in closeTags {
+            if let found = scanner[contentStart...].range(of: closeTag) {
+                endRange = found
+                break
+            }
+        }
+        
+        if let endRange = endRange {
             let content = String(scanner[contentStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
             if !content.isEmpty { thinkingParts.append(content) }
             scanner = String(scanner[endRange.upperBound...])
@@ -472,10 +490,21 @@ struct MessageBubble: View {
         }
     }
 
-    private func processTool(in scanner: inout String, start: Range<String.Index>, visible: inout String, tools: inout [ToolCallInfo]) {
+    private func processTool(in scanner: inout String, start: Range<String.Index>, toolOpen: String, toolClose: String, visible: inout String, tools: inout [ToolCallInfo]) {
         visible += String(scanner[..<start.lowerBound])
         let contentStart = start.upperBound
-        if let endRange = scanner[contentStart...].range(of: "</tool_call>") {
+        
+        // Support both new Unicode close tag and legacy format
+        let closeTags = [toolClose, " tarmi"]
+        var endRange: Range<String.Index>?
+        for closeTag in closeTags {
+            if let found = scanner[contentStart...].range(of: closeTag) {
+                endRange = found
+                break
+            }
+        }
+        
+        if let endRange = endRange {
             let jsonString = String(scanner[contentStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
             if let data = jsonString.data(using: .utf8),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
