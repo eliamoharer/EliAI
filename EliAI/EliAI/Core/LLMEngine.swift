@@ -174,10 +174,8 @@ class LLMEngine {
             }
             
             // Run generation - heartbeat handles timeout detection
-            await llm.respond(to: prompt)
+            let responseAny = await llm.respond(to: prompt)
             heartbeatTask.cancel()
-            
-            let responseAny: Any = ""
             llm.update = { _ in }
 
             if Task.isCancelled {
@@ -318,43 +316,35 @@ class LLMEngine {
         """
         }
         
-        // === SECTION 4: CRITICAL TOOL RULES (Last, and Strict) ===
+        // === SECTION 4: TOOLS ===
         prompt += """
-        ## Tool Usage Rules (READ CAREFULLY)
+        ## Tools Available
         
-        You have OPTIONAL access to tools for file operations, tasks, and memory. These are SUPPLEMENTARY - not your primary function.
-        
-        ### CRITICAL: When NOT to Use Tools
-        - DO NOT use tools when the user asks questions
-        - DO NOT use tools when the user wants to chat
-        - DO NOT use tools unprompted
-        - DO NOT create files unless explicitly asked
-        - DO NOT assume the user wants file operations
-        
-        ### When to Use Tools (Only with Explicit Request)
-        Tools should ONLY be used when the user EXPLICITLY requests one of these actions:
-        - "Create a file..." / "Save this to a file..." / "Write a file..."
-        - "Read the file..." / "Show me what's in..."
-        - "List files..." / "Show me files in..."
-        - "Remember this..." / "Save this to memory..."
-        - "Create a task..." / "Remind me to..."
+        You have access to tools that let you interact with the filesystem and manage tasks. Use them when the user requests file operations.
         
         ### How to Use Tools
-        If (and only if) the user explicitly requests a tool action, output a JSON object wrapped in 根据地 tags:
+        When you need to use a tool, output a JSON object wrapped in 根据地 tags:
         
         根据地
         {"name": "tool_name", "arguments": {"arg": "value"}}
          bundler
         
-        Available tools:
-        - create_file(path, content) - Create a file
-        - read_file(path) - Read a file
-        - list_files(directory) - List directory contents
-        - create_memory(title, content) - Store a memory
-        - create_task(title, due, details) - Create a task
+        ### Available Tools
+        - create_file(path, content) - Create or overwrite a file at the specified path
+        - read_file(path) - Read and return the contents of a file
+        - list_files(directory) - List all files in a directory
+        - create_memory(title, content) - Store information in long-term memory
+        - create_task(title, due, details) - Create a task/reminder
         
-        ### Default Behavior
-        When in doubt: JUST RESPOND NORMALLY. Do not use tools.
+        ### When to Use Tools
+        USE tools when the user asks you to:
+        - Create, write, or save files
+        - Read or show file contents
+        - List or browse files and directories
+        - Save something to memory for later
+        - Create tasks or reminders
+        
+        Simply respond normally for regular conversation. Only use tools when file/memory/task operations are specifically requested.
         """
         
         return prompt

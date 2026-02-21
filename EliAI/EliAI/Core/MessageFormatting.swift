@@ -128,7 +128,12 @@ enum MessageFormatting {
                 continue
             }
 
-            let trimmedLatex = rawLatex.trimmingCharacters(in: .whitespacesAndNewlines)
+            var trimmedLatex = rawLatex.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            // Unescape double backslashes: models output \\frac which should be \frac for LaTeX
+            // This handles the common case where LLM outputs escaped LaTeX
+            trimmedLatex = trimmedLatex.replacingOccurrences(of: "\\\\", with: "\\")
+            
             if trimmedLatex.isEmpty {
                 if match.delimiter.open == "$" {
                     output += String(text[match.range])
