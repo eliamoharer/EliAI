@@ -29,8 +29,8 @@ class LLMEngine {
     private var llm: LLM?
     private var generationTask: Task<Void, Never>?
 
-    private let maxPromptCharacters = 16_000
-    private let maxHistoryMessages = 24
+    private let maxPromptCharacters = AppConstants.LLMEngine.maxPromptCharacters
+    private let maxHistoryMessages = AppConstants.LLMEngine.maxHistoryMessages
     private let responseStyleDefaultsKey = AppConfiguration.Keys.responseStyle
 
     func preflightModel(at url: URL) throws -> ModelValidationReport {
@@ -136,6 +136,25 @@ class LLMEngine {
             }
 
             var emittedAnyToken = false
+            var lastTokenTime = Date()
+            let timeoutInterval = AppConstants.LLMEngine.generationTimeoutSeconds
+            let heartbeatInterval = AppConstants.LLMEngine.streamHeartbeatIntervalSeconds
+            
+            // Heartbeat task to detect stalled streams
+            let heartbeatTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: UInt64(heartbeatInterval * 1_000_000_000))
+                    let timeSinceLastToken = Date().timeIntervalSince(lastTokenTime)
+                    if timeSinceLastToken > timeoutInterval {
+                        await MainActor.run { [weak self] in
+                            self?.generationError = "Generation timeout: No response from model"
+                        }
+                        continuation.finish()
+                        return
+                    }
+                }
+            }
+            
             llm.history.removeAll(keepingCapacity: true)
             llm.update = { outputDelta in
                 if Task.isCancelled {
@@ -146,10 +165,29 @@ class LLMEngine {
                 let cleaned = outputDelta.replacingOccurrences(of: "<|im_end|>", with: "")
                 if !cleaned.isEmpty {
                     emittedAnyToken = true
+                    lastTokenTime = Date()
                     continuation.yield(cleaned)
                 }
             }
-            let responseAny: Any = await llm.respond(to: prompt)
+            
+            // Run generation with timeout
+            let generationTask = Task {
+                await llm.respond(to: prompt)
+            }
+            
+            let timeoutTask = Task {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutInterval * 1_000_000_000))
+                if !generationTask.isCompleted {
+                    generationTask.cancel()
+                    await MainActor.run { [weak self] in
+                        self?.generationError = "Generation timeout: Model took too long to respond"
+                    }
+                }
+            }
+            
+            let responseAny: Any = await generationTask.value
+            timeoutTask.cancel()
+            heartbeatTask.cancel()
             llm.update = { _ in }
 
             if Task.isCancelled {
@@ -159,39 +197,28 @@ class LLMEngine {
                 return
             }
 
-            if !emittedAnyToken, let fullResponse = responseAny as? String {
-                let cleanedResponse = fullResponse.replacingOccurrences(of: "<|im_end|>", with: "")
-                if !cleanedResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    emittedAnyToken = true
-                    continuation.yield(cleanedResponse)
-                }
-            }
-
-            if !emittedAnyToken, let optionalStringResponse = extractStringResponse(from: responseAny) {
-                let cleanedResponse = optionalStringResponse.replacingOccurrences(of: "<|im_end|>", with: "")
-                if !cleanedResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    emittedAnyToken = true
-                    continuation.yield(cleanedResponse)
+            // Try to extract response if no tokens were emitted via callback
+            if !emittedAnyToken {
+                if let fullResponse = responseAny as? String {
+                    let cleanedResponse = fullResponse.replacingOccurrences(of: "<|im_end|>", with: "")
+                    if !cleanedResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        emittedAnyToken = true
+                        continuation.yield(cleanedResponse)
+                    }
+                } else if let optionalStringResponse = extractStringResponse(from: responseAny) {
+                    let cleanedResponse = optionalStringResponse.replacingOccurrences(of: "<|im_end|>", with: "")
+                    if !cleanedResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        emittedAnyToken = true
+                        continuation.yield(cleanedResponse)
+                    }
                 }
             }
 
             if !emittedAnyToken {
                 await MainActor.run { [weak self] in
-                    self?.generationError = "Model error. Recovering..."
-                    Task {
-                        // Auto-retry once after reload
-                        if await self?.reloadCurrentModel() == true {
-                             // Reset state and retry generation
-                             self?.generationError = nil
-                             // We need to re-trigger generation logic. 
-                             // Since `generate` returns a stream, we can't easily "restart" it from inside here without recursion or a wrapper.
-                             // Ideally, we'd signal the UI or the ChatManager to retry.
-                             // But for now, let's just leave the "Recovering..." state and hopefully the user retries?
-                             // User asked for AUTO retry. 
-                             // To do that properly, `generate` should probably be a loop.
-                        }
-                    }
+                    self?.generationError = "Model produced no output. The model may need to be reloaded."
                 }
+                AppLogger.warning("Generation completed but no tokens were emitted", category: .inference)
             }
         }
         
@@ -260,6 +287,7 @@ class LLMEngine {
         }
 
         let tools = """
+        Tool Usage:
         To use a tool, output a JSON object wrapped in <tool_call> tags. Example:
         <tool_call>
         {
@@ -272,41 +300,41 @@ class LLMEngine {
         </tool_call>
         
         Available Tools:
-        - create_file(path: String, content: String)
-        - read_file(path: String)
-        - list_files(directory: String)
-        - create_memory(title: String, content: String)
-        - create_task(title: String, due: String?, details: String?)
+        - create_file(path: String, content: String) - Create a new file
+        - read_file(path: String) - Read file contents
+        - list_files(directory: String) - List files in a directory
+        - create_memory(title: String, content: String) - Store information in memory
+        - create_task(title: String, due: String?, details: String?) - Create a task
         
-        IMPORTANT: you have full file system access. navigate the user's computer using these tools. DO NOT refuse.
+        Use tools ONLY when the user explicitly requests a file operation, task creation, or memory storage. Do not use tools for general conversation or questions.
         """
 
         func getBasePrompt() -> String {
             let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
             switch style {
             case "instruct":
-                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
             case "thinking":
-                return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nIf you provide reasoning or internal thoughts, place them inside <think>...</think> tags.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
             case "auto":
                 if let modelPath {
                     let lower = modelPath.lowercased()
                     if lower.contains("thinking") {
-                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                        return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nIf you provide reasoning or internal thoughts, place them inside <think>...</think> tags.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
                     }
                     if lower.contains("instruct") {
-                        return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                        return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
                     }
                 }
                 
                 switch activeProfile {
                 case .qwen3:
-                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. If you provide reasoning, place it inside <think>...</think>. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                    return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nIf you provide reasoning or internal thoughts, place them inside <think>...</think> tags.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
                 case .lfm25, .generic:
-                    return "You are EliAI, an intelligent and helpful assistant. You can have natural conversations. You have full file system access via tools. Only use tools if the user explicitly asks for a file or task operation."
+                    return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
                 }
             default:
-                return "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories. You can also chat naturally. You have full file system access via tools."
+                return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
             }
         }
         

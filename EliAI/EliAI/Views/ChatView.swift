@@ -523,8 +523,8 @@ struct ChatView: View {
     private func runAgentLoop() async {
         var keepGenerating = true
         var steps = 0
-        let maxSteps = 4
-        var didRetryEmptyGeneration = false
+        let maxSteps = AppConstants.AgentLoop.maxSteps
+        var recoveryAttempts = 0
 
         while keepGenerating && steps < maxSteps {
             steps += 1
@@ -554,63 +554,47 @@ struct ChatView: View {
                     break
                 }
 
-                // Check for auto-recovery signal from LLMEngine
-                if llmEngine.generationError == "Model error. Recovering..." {
-                    if !didRetryEmptyGeneration {
-                        didRetryEmptyGeneration = true
-                        await MainActor.run {
-                            chatManager.removeMessage(id: assistantMessage.id)
-                        }
-                        AppLogger.warning("Auto-recovery signal detected. Waiting for reload and retrying...", category: .inference)
-                        
-                        // Wait for a moment to ensure the reload task has started (increased from 0.5s to 2.0s)
-                        try? await Task.sleep(nanoseconds: 2_000_000_000)
-                        
-                        // Wait for model to finish loading
-                        var waitAttempts = 0
-                        // Wait up to 60s (120 * 0.5s)
-                        while (llmEngine.isLoadingModel || !llmEngine.isLoaded) && waitAttempts < 120 {
-                            try? await Task.sleep(nanoseconds: 500_000_000)
-                            waitAttempts += 1
-                        }
-                        
-                        if !llmEngine.isLoaded {
-                             AppLogger.error("Model failed to reload during auto-recovery.", category: .inference)
-                             // Let it fall through to error message
-                             break 
-                        }
-                        
-                        // Brief cool-down after load
-                         try? await Task.sleep(nanoseconds: 1_000_000_000) 
-                        
-                        keepGenerating = true
-                        continue
-                    }
-                }
-
-                if !didRetryEmptyGeneration {
-                    didRetryEmptyGeneration = true
+                // Attempt recovery if model error detected
+                if let error = llmEngine.generationError, 
+                   (error.contains("timeout") || error.contains("no output") || error.contains("error")),
+                   recoveryAttempts < AppConstants.LLMEngine.maxRecoveryAttempts {
+                    recoveryAttempts += 1
                     await MainActor.run {
                         chatManager.removeMessage(id: assistantMessage.id)
                     }
-                    AppLogger.warning("Empty generation detected; retrying once automatically.", category: .inference)
-                    keepGenerating = true
-                    continue
+                    AppLogger.warning("Generation error detected. Attempting recovery (attempt \(recoveryAttempts)/\(AppConstants.LLMEngine.maxRecoveryAttempts))...", category: .inference)
+                    
+                    // Wait for model to be ready using proper async coordination
+                    let modelReady = await waitForModelReady()
+                    
+                    if modelReady {
+                        // Clear error state before retry
+                        await MainActor.run {
+                            llmEngine.generationError = nil
+                        }
+                        keepGenerating = true
+                        continue
+                    } else {
+                        AppLogger.error("Model recovery failed. Model is not ready.", category: .inference)
+                    }
                 }
 
+                // If we've exhausted recovery attempts or no error was detected, show error message
                 let fallbackMessage = llmEngine.generationError?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                     ? (llmEngine.generationError ?? "I couldn't generate a response. Please try again.")
                     : "I couldn't generate a response. Please try again."
 
                 await MainActor.run {
                     AppLogger.error(
-                        "Generation produced empty output after retry. error=\(llmEngine.generationError ?? "nil")",
+                        "Generation produced empty output. error=\(llmEngine.generationError ?? "nil"), recoveryAttempts=\(recoveryAttempts)",
                         category: .inference
                     )
                     assistantMessage.content = fallbackMessage
                     chatManager.updateLastMessage(assistantMessage)
                 }
             } else {
+                // Success - reset recovery attempts
+                recoveryAttempts = 0
                 await MainActor.run {
                     assistantMessage.content = fullResponse
                     chatManager.updateLastMessage(assistantMessage)
@@ -636,6 +620,29 @@ struct ChatView: View {
             chatManager.addMessage(warning)
         }
     }
+    
+    /// Waits for the model to be ready using proper async coordination
+    private func waitForModelReady() async -> Bool {
+        let maxWaitAttempts = AppConstants.AgentLoop.recoveryMaxWaitAttempts
+        let waitInterval = AppConstants.AgentLoop.recoveryWaitIntervalSeconds
+        
+        // If model is already ready, return immediately
+        if llmEngine.isLoaded && !llmEngine.isLoadingModel {
+            return true
+        }
+        
+        // Wait for model loading to complete
+        for _ in 0..<maxWaitAttempts {
+            if llmEngine.isLoaded && !llmEngine.isLoadingModel {
+                // Brief cooldown after load
+                try? await Task.sleep(nanoseconds: UInt64(AppConstants.AgentLoop.recoveryCooldownSeconds * 1_000_000_000))
+                return true
+            }
+            try? await Task.sleep(nanoseconds: UInt64(waitInterval * 1_000_000_000))
+        }
+        
+        return llmEngine.isLoaded && !llmEngine.isLoadingModel
+    }
 
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
         if animated {
@@ -649,10 +656,9 @@ struct ChatView: View {
 
     private func scrollToBottomStabilized(proxy: ScrollViewProxy, animated: Bool) {
         scrollToBottom(proxy: proxy, animated: animated)
-        DispatchQueue.main.async {
-            scrollToBottom(proxy: proxy, animated: false)
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+        // Single stabilization attempt after initial scroll
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(AppConstants.UI.scrollStabilizationDelaySeconds * 1_000_000_000))
             scrollToBottom(proxy: proxy, animated: false)
         }
     }

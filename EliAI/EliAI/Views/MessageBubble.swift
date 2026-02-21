@@ -411,30 +411,9 @@ struct MessageBubble: View {
         if let endRange = scanner[contentStart...].range(of: "</tool_call>") {
             let jsonString = String(scanner[contentStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
             
-            // HEURISTIC: Fix common LaTeX/JSON escaping issues directly in the string before parsing.
-            // Models often output "\frac" in JSON strings which Swift's JSONDecoder reads as control char \f (form feed) + "rac".
-            // We forcefully double-escape backslashes that look like start of LaTeX commands.
-            
-            // 1. naive replacer for specific known problem commands
-            var sanitized = jsonString
-                .replacingOccurrences(of: "\\frac", with: "\\\\frac")
-                .replacingOccurrences(of: "\\begin", with: "\\\\begin")
-                .replacingOccurrences(of: "\\end", with: "\\\\end")
-                .replacingOccurrences(of: "\\text", with: "\\\\text")
-                .replacingOccurrences(of: "\\left", with: "\\\\left")
-                .replacingOccurrences(of: "\\right", with: "\\\\right")
-                .replacingOccurrences(of: "\\sqrt", with: "\\\\sqrt")
-                .replacingOccurrences(of: "\\alpha", with: "\\\\alpha")
-                .replacingOccurrences(of: "\\beta", with: "\\\\beta")
-                .replacingOccurrences(of: "\\gamma", with: "\\\\gamma")
-                .replacingOccurrences(of: "\\theta", with: "\\\\theta")
-                .replacingOccurrences(of: "\\pi", with: "\\\\pi")
-                .replacingOccurrences(of: "\\sigma", with: "\\\\sigma")
-                .replacingOccurrences(of: "\\infty", with: "\\\\infty")
-                .replacingOccurrences(of: "\\int", with: "\\\\int")
-                .replacingOccurrences(of: "\\sum", with: "\\\\sum")
-                .replacingOccurrences(of: "\\prod", with: "\\\\prod")
-                .replacingOccurrences(of: "\\partial", with: "\\\\partial")
+            // Properly sanitize JSON by escaping backslashes in string values
+            // This handles LaTeX commands and other backslash sequences correctly
+            let sanitized = sanitizeJSONString(jsonString)
 
             if let data = sanitized.data(using: .utf8),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -449,6 +428,78 @@ struct MessageBubble: View {
              // Unclosed, just hide header
              scanner = String(scanner[contentStart...])
         }
+    }
+    
+    /// Sanitizes JSON string by properly escaping backslashes in string values
+    /// This handles LaTeX commands and other backslash sequences that JSON requires to be escaped
+    private func sanitizeJSONString(_ jsonString: String) -> String {
+        // First, try parsing as-is - if it works, no sanitization needed
+        if let _ = try? JSONSerialization.jsonObject(with: jsonString.data(using: .utf8) ?? Data()) {
+            return jsonString
+        }
+        
+        // If parsing fails, escape backslashes in string values that aren't part of valid JSON escape sequences
+        // Valid JSON escape sequences: ", \, /, b, f, n, r, t, u followed by hex digits
+        var result = ""
+        var inString = false
+        var escapeNext = false
+        var i = jsonString.startIndex
+        
+        while i < jsonString.endIndex {
+            let char = jsonString[i]
+            
+            if escapeNext {
+                // We're processing an escape sequence
+                if inString {
+                    // Check if this is a valid JSON escape sequence
+                    let validEscapes = "\"\\/bfnrtu"
+                    if validEscapes.contains(char) {
+                        result.append("\\")
+                        result.append(char)
+                    } else {
+                        // Not a valid escape - double-escape the backslash
+                        result.append("\\\\")
+                        result.append(char)
+                    }
+                } else {
+                    result.append("\\")
+                    result.append(char)
+                }
+                escapeNext = false
+            } else if char == "\\" {
+                if inString {
+                    // Check next character to see if it's a valid escape
+                    let nextIndex = jsonString.index(after: i)
+                    if nextIndex < jsonString.endIndex {
+                        let nextChar = jsonString[nextIndex]
+                        let validEscapes = "\"\\/bfnrtu"
+                        if validEscapes.contains(nextChar) {
+                            // Valid escape sequence - keep as-is
+                            result.append(char)
+                            escapeNext = true
+                        } else {
+                            // Invalid escape (likely LaTeX) - escape the backslash
+                            result.append("\\\\")
+                        }
+                    } else {
+                        // Backslash at end - escape it
+                        result.append("\\\\")
+                    }
+                } else {
+                    result.append(char)
+                    escapeNext = true
+                }
+            } else {
+                if char == "\"" {
+                    inString.toggle()
+                }
+                result.append(char)
+            }
+            
+            i = jsonString.index(after: i)
+        }
+        
+        return result
     }
 
     private func parseContentSegments(from text: String) -> [MessageSegment] {
@@ -813,9 +864,33 @@ private struct MathSegmentView: View {
 private struct MarkdownMathText: UIViewRepresentable {
     let text: String
     let role: ChatMessage.Role
-    private static let orderedListRegex = try? NSRegularExpression(pattern: #"^(\s*)(\d+)\.\s+(.*)$"#)
-    private static let unorderedListRegex = try? NSRegularExpression(pattern: #"^(\s*)[-*+]\s+(.*)$"#)
-    private static let headingRegex = try? NSRegularExpression(pattern: #"^(#{1,6})\s+(.*)$"#)
+    private static let orderedListRegex: NSRegularExpression = {
+        do {
+            return try NSRegularExpression(pattern: #"^(\s*)(\d+)\.\s+(.*)$"#)
+        } catch {
+            AppLogger.error("Failed to compile ordered list regex: \(error)", category: .ui)
+            // Return a regex that matches nothing as fallback
+            return try! NSRegularExpression(pattern: #"(?!.*)"#)
+        }
+    }()
+    
+    private static let unorderedListRegex: NSRegularExpression = {
+        do {
+            return try NSRegularExpression(pattern: #"^(\s*)[-*+]\s+(.*)$"#)
+        } catch {
+            AppLogger.error("Failed to compile unordered list regex: \(error)", category: .ui)
+            return try! NSRegularExpression(pattern: #"(?!.*)"#)
+        }
+    }()
+    
+    private static let headingRegex: NSRegularExpression = {
+        do {
+            return try NSRegularExpression(pattern: #"^(#{1,6})\s+(.*)$"#)
+        } catch {
+            AppLogger.error("Failed to compile heading regex: \(error)", category: .ui)
+            return try! NSRegularExpression(pattern: #"(?!.*)"#)
+        }
+    }()
 
     final class Coordinator {
         var imageCache: [String: UIImage] = [:]
@@ -933,9 +1008,7 @@ private struct MarkdownMathText: UIViewRepresentable {
     }
 
     private func parseOrderedListLine(_ line: String) -> (number: String, content: String, indentLevel: Int)? {
-        guard let regex = Self.orderedListRegex else {
-            return nil
-        }
+        let regex = Self.orderedListRegex
         let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
         guard let match = regex.firstMatch(in: line, options: [], range: nsRange),
               match.numberOfRanges == 4,
@@ -950,9 +1023,7 @@ private struct MarkdownMathText: UIViewRepresentable {
     }
 
     private func parseUnorderedListLine(_ line: String) -> (content: String, indentLevel: Int)? {
-        guard let regex = Self.unorderedListRegex else {
-            return nil
-        }
+        let regex = Self.unorderedListRegex
         let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
         guard let match = regex.firstMatch(in: line, options: [], range: nsRange),
               match.numberOfRanges == 3,
@@ -966,9 +1037,7 @@ private struct MarkdownMathText: UIViewRepresentable {
     }
 
     private func parseHeadingLine(_ line: String) -> (level: Int, content: String)? {
-        guard let regex = Self.headingRegex else {
-            return nil
-        }
+        let regex = Self.headingRegex
         let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
         guard let match = regex.firstMatch(in: line, options: [], range: nsRange),
               match.numberOfRanges == 3,
@@ -985,7 +1054,11 @@ private struct MarkdownMathText: UIViewRepresentable {
         let listText = NSMutableAttributedString()
         listText.append(NSAttributedString(string: String(repeating: " ", count: indentLevel * 2)))
         listText.append(NSAttributedString(string: prefix))
-        listText.append(inlineAttributedString(from: content))
+        
+        // Process content with inline math support - placeholders should be preserved
+        // Create attributed string from content (which may contain placeholders)
+        let contentAttributed = inlineAttributedString(from: content)
+        listText.append(contentAttributed)
 
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.firstLineHeadIndent = indentWidth
@@ -1005,9 +1078,9 @@ private struct MarkdownMathText: UIViewRepresentable {
             failurePolicy: .returnPartiallyParsedIfPossible
         )
         if let attributed = try? AttributedString(markdown: markdownInline, options: options) {
-            return NSAttributedString(attributed)
+            return NSMutableAttributedString(attributed)
         }
-        return NSAttributedString(string: markdownInline)
+        return NSMutableAttributedString(string: markdownInline)
     }
 
     private func applyHeadingStyle(to attributed: NSMutableAttributedString, level: Int) {
@@ -1031,6 +1104,7 @@ private struct MarkdownMathText: UIViewRepresentable {
     ) {
         for token in tokens {
             var searchRange = NSRange(location: 0, length: mutable.length)
+            var replacementCount = 0
 
             while true {
                 let currentString = mutable.string as NSString
@@ -1050,12 +1124,20 @@ private struct MarkdownMathText: UIViewRepresentable {
                 let replacementRange = NSRange(location: 0, length: replacement.length)
                 replacement.addAttribute(.inlineLatexSource, value: token.latex, range: replacementRange)
                 mutable.replaceCharacters(in: found, with: replacement)
+                replacementCount += 1
 
-                let nextLocation = min(found.location + 1, mutable.length)
+                // Update search range after replacement
+                let replacementLength = replacement.length
+                let nextLocation = found.location + replacementLength
                 if nextLocation >= mutable.length {
                     break
                 }
                 searchRange = NSRange(location: nextLocation, length: mutable.length - nextLocation)
+            }
+            
+            // Log if placeholder wasn't found (for debugging)
+            if replacementCount == 0 {
+                AppLogger.debug("Math placeholder '\(token.placeholder)' not found in attributed string. String length: \(mutable.length)", category: .ui)
             }
         }
     }
@@ -1074,12 +1156,29 @@ private struct MarkdownMathText: UIViewRepresentable {
             image = cached
         } else {
             let rendered = renderInlineMathImage(latex: latex, color: color, fontSize: mathFontSize)
-            if rendered.size.width <= 6 || rendered.size.height <= 6 {
-                image = renderFallbackInlineTextImage(
-                    latex: latex,
-                    color: color,
-                    fontSize: max(16, referenceFont.pointSize + 1)
-                )
+            if rendered.size.width <= AppConstants.LaTeX.fallbackImageMinSize || 
+               rendered.size.height <= AppConstants.LaTeX.fallbackImageMinSize {
+                // Try preprocessing the LaTeX more aggressively before falling back
+                let preprocessed = LaTeXPreprocessor.preprocess(latex)
+                if preprocessed != latex {
+                    let retryRendered = renderInlineMathImage(latex: preprocessed, color: color, fontSize: mathFontSize)
+                    if retryRendered.size.width > AppConstants.LaTeX.fallbackImageMinSize && 
+                       retryRendered.size.height > AppConstants.LaTeX.fallbackImageMinSize {
+                        image = retryRendered
+                    } else {
+                        image = renderFallbackInlineTextImage(
+                            latex: latex,
+                            color: color,
+                            fontSize: max(16, referenceFont.pointSize + 1)
+                        )
+                    }
+                } else {
+                    image = renderFallbackInlineTextImage(
+                        latex: latex,
+                        color: color,
+                        fontSize: max(16, referenceFont.pointSize + 1)
+                    )
+                }
             } else {
                 image = rendered
             }
@@ -1110,14 +1209,16 @@ private struct MarkdownMathText: UIViewRepresentable {
 
         let measured = label.sizeThatFits(
             CGSize(
-                width: 4096,
-                height: 4096
+                width: AppConstants.LaTeX.maxRenderSize,
+                height: AppConstants.LaTeX.maxRenderSize
             )
         )
-        if !measured.width.isFinite || !measured.height.isFinite || measured.width <= 1 || measured.height <= 1 {
+        if !measured.width.isFinite || !measured.height.isFinite || 
+           measured.width <= AppConstants.LaTeX.fallbackImageMinSize || 
+           measured.height <= AppConstants.LaTeX.fallbackImageMinSize {
             return renderFallbackInlineTextImage(latex: latex, color: color, fontSize: fontSize)
         }
-        let width = max(6, ceil(measured.width))
+        let width = max(AppConstants.LaTeX.fallbackImageMinSize, ceil(measured.width))
         let height = max(ceil(fontSize * 1.2), ceil(measured.height))
         let renderSize = CGSize(width: width, height: height)
 
@@ -1161,7 +1262,10 @@ private struct MarkdownMathText: UIViewRepresentable {
         ]
         let text = latex as NSString
         let measured = text.size(withAttributes: attributes)
-        let size = CGSize(width: max(8, ceil(measured.width)), height: max(20, ceil(measured.height)))
+        let size = CGSize(
+            width: max(AppConstants.LaTeX.fallbackImageMinSize, ceil(measured.width)), 
+            height: max(AppConstants.LaTeX.fallbackImageMinHeight, ceil(measured.height))
+        )
 
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = false
