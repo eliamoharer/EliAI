@@ -28,6 +28,9 @@ enum MessageFormatting {
 
     static func normalizeMarkdown(_ text: String) -> String {
         var value = normalizeNewlines(text)
+        
+        // Protect math placeholders from regex transformations
+        // They should pass through unchanged
 
         // Move inline headings onto their own line when models emit "... ### Header".
         value = value.replacingOccurrences(
@@ -65,13 +68,13 @@ enum MessageFormatting {
         )
 
         // Force jammed inline list markers into real lines.
-        // EDITED: Made stricter to avoid matching "+ " inside math equations. Added (?<=^|\n) anchor.
+        // Skip lines containing math placeholders to avoid corrupting inline math
         value = value.replacingOccurrences(
-            of: #"(?<=^|\n)\s*([-*+])\s+(?=(\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]|[A-Za-z]))"#,
+            of: #"(?<=^|\n)\s*([-*+])\s+(?=(\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]|[A-Za-z]|ZZZMATHPLACEHOLDER))"#,
             with: "$1 ",
             options: .regularExpression
         )
-        // EDITED: Made strict for numbered lists too.
+        // Made strict for numbered lists too - also protect math placeholders
         value = value.replacingOccurrences(
             of: #"(?<=^|\n)\s+(\d+\.)\s+(?=\S)"#,
             with: "$1 ",
@@ -85,7 +88,7 @@ enum MessageFormatting {
         )
 
         value = value.replacingOccurrences(
-            of: #"(?<=\S)\s+-\s+(?=(\*\*[^*\n]{2,}\*\*|`[^`\n]{1,}`|\[[^\]\n]{1,}\]|[A-Z][^\n]{0,48}))"#,
+            of: #"(?<=\S)\s+-\s+(?=(\*\*[^*\n]{2,}\*\*|`[^`\n]{1,}`|\[[^\]\n]{1,}\]|[A-Z][^\n]{0,48}|ZZZMATHPLACEHOLDER))"#,
             with: "\n- ",
             options: .regularExpression
         )

@@ -939,8 +939,8 @@ private struct MarkdownMathText: UIViewRepresentable {
         // 3. Normalize the markdown (which now has ZZZMATHPLACEHOLDERs that won't trigger list logic)
         let normalizedMarkdown = MessageFormatting.normalizeMarkdown(extracted.markdown)
         
-        // 4. Build structure
-        let mutable = buildStructuredAttributedText(from: normalizedMarkdown)
+        // 4. Build structure - pass tokens and coordinator for list math rendering
+        let mutable = buildStructuredAttributedText(from: normalizedMarkdown, tokens: extracted.tokens, coordinator: coordinator)
         let fullRange = NSRange(location: 0, length: mutable.length)
         if role == .user {
             mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)
@@ -960,13 +960,13 @@ private struct MarkdownMathText: UIViewRepresentable {
         return mutable
     }
 
-    private func buildStructuredAttributedText(from markdown: String) -> NSMutableAttributedString {
+    private func buildStructuredAttributedText(from markdown: String, tokens: [InlineMathToken] = [], coordinator: Coordinator? = nil) -> NSMutableAttributedString {
         let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let output = NSMutableAttributedString()
 
         for index in lines.indices {
             let line = lines[index]
-            output.append(renderStructuredLine(line))
+            output.append(renderStructuredLine(line, tokens: tokens, coordinator: coordinator))
             if index < lines.count - 1 {
                 output.append(NSAttributedString(string: "\n"))
             }
@@ -975,7 +975,7 @@ private struct MarkdownMathText: UIViewRepresentable {
         return output
     }
 
-    private func renderStructuredLine(_ line: String) -> NSAttributedString {
+    private func renderStructuredLine(_ line: String, tokens: [InlineMathToken] = [], coordinator: Coordinator? = nil) -> NSAttributedString {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty {
             return NSAttributedString(string: "")
@@ -985,7 +985,9 @@ private struct MarkdownMathText: UIViewRepresentable {
             return renderListLine(
                 prefix: "\(ordered.number). ",
                 content: ordered.content,
-                indentLevel: ordered.indentLevel
+                indentLevel: ordered.indentLevel,
+                tokens: tokens,
+                coordinator: coordinator
             )
         }
 
@@ -993,7 +995,9 @@ private struct MarkdownMathText: UIViewRepresentable {
             return renderListLine(
                 prefix: "\u{2022} ",
                 content: unordered.content,
-                indentLevel: unordered.indentLevel
+                indentLevel: unordered.indentLevel,
+                tokens: tokens,
+                coordinator: coordinator
             )
         }
 
@@ -1049,7 +1053,7 @@ private struct MarkdownMathText: UIViewRepresentable {
         return (line[levelRange].count, String(line[contentRange]))
     }
 
-    private func renderListLine(prefix: String, content: String, indentLevel: Int) -> NSAttributedString {
+    private func renderListLine(prefix: String, content: String, indentLevel: Int, tokens: [InlineMathToken] = [], coordinator: Coordinator? = nil) -> NSAttributedString {
         let indentWidth = CGFloat(indentLevel) * 18.0
         let listText = NSMutableAttributedString()
         listText.append(NSAttributedString(string: String(repeating: " ", count: indentLevel * 2)))
@@ -1059,6 +1063,11 @@ private struct MarkdownMathText: UIViewRepresentable {
         // Create attributed string from content (which may contain placeholders)
         let contentAttributed = inlineAttributedString(from: content)
         listText.append(contentAttributed)
+
+        // Restore inline math attachments in list content
+        if !tokens.isEmpty, let coordinator = coordinator {
+            restoreInlineMathInAttributedString(listText, tokens: tokens, coordinator: coordinator)
+        }
 
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.firstLineHeadIndent = indentWidth
@@ -1070,6 +1079,38 @@ private struct MarkdownMathText: UIViewRepresentable {
             range: NSRange(location: 0, length: listText.length)
         )
         return listText
+    }
+    
+    /// Restores inline math placeholders with actual math attachments in an attributed string
+    private func restoreInlineMathInAttributedString(_ mutable: NSMutableAttributedString, tokens: [InlineMathToken], coordinator: Coordinator) {
+        for token in tokens {
+            var searchRange = NSRange(location: 0, length: mutable.length)
+            
+            while true {
+                let currentString = mutable.string as NSString
+                let found = currentString.range(of: token.placeholder, options: [], range: searchRange)
+                guard found.location != NSNotFound else { break }
+                
+                let fontAnchor = max(0, found.location - 1)
+                let fallbackFont = UIFont.preferredFont(forTextStyle: .body)
+                let referenceFont = (mutable.attribute(.font, at: fontAnchor, effectiveRange: nil) as? UIFont) ?? fallbackFont
+                
+                let attachment = inlineMathAttachment(
+                    latex: token.latex,
+                    referenceFont: referenceFont,
+                    coordinator: coordinator
+                )
+                
+                let replacement = NSMutableAttributedString(attachment: attachment)
+                let replacementRange = NSRange(location: 0, length: replacement.length)
+                replacement.addAttribute(.inlineLatexSource, value: token.latex, range: replacementRange)
+                mutable.replaceCharacters(in: found, with: replacement)
+                
+                let nextLocation = found.location + replacement.length
+                if nextLocation >= mutable.length { break }
+                searchRange = NSRange(location: nextLocation, length: mutable.length - nextLocation)
+            }
+        }
     }
 
     private func inlineAttributedString(from markdownInline: String) -> NSAttributedString {
