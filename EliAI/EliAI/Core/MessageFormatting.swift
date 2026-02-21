@@ -28,9 +28,6 @@ enum MessageFormatting {
 
     static func normalizeMarkdown(_ text: String) -> String {
         var value = normalizeNewlines(text)
-        
-        // Protect math placeholders from regex transformations
-        // They should pass through unchanged
 
         // Move inline headings onto their own line when models emit "... ### Header".
         value = value.replacingOccurrences(
@@ -68,13 +65,13 @@ enum MessageFormatting {
         )
 
         // Force jammed inline list markers into real lines.
-        // Skip lines containing math placeholders to avoid corrupting inline math
+        // EDITED: Made stricter to avoid matching "+ " inside math equations. Added (?<=^|\n) anchor.
         value = value.replacingOccurrences(
-            of: #"(?<=^|\n)\s*([-*+])\s+(?=(\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]|[A-Za-z]|ZZZMATHPLACEHOLDER))"#,
+            of: #"(?<=^|\n)\s*([-*+])\s+(?=(\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]|[A-Za-z]))"#,
             with: "$1 ",
             options: .regularExpression
         )
-        // Made strict for numbered lists too - also protect math placeholders
+        // EDITED: Made strict for numbered lists too.
         value = value.replacingOccurrences(
             of: #"(?<=^|\n)\s+(\d+\.)\s+(?=\S)"#,
             with: "$1 ",
@@ -88,7 +85,7 @@ enum MessageFormatting {
         )
 
         value = value.replacingOccurrences(
-            of: #"(?<=\S)\s+-\s+(?=(\*\*[^*\n]{2,}\*\*|`[^`\n]{1,}`|\[[^\]\n]{1,}\]|[A-Z][^\n]{0,48}|ZZZMATHPLACEHOLDER))"#,
+            of: #"(?<=\S)\s+-\s+(?=(\*\*[^*\n]{2,}\*\*|`[^`\n]{1,}`|\[[^\]\n]{1,}\]|[A-Z][^\n]{0,48}))"#,
             with: "\n- ",
             options: .regularExpression
         )
@@ -128,12 +125,7 @@ enum MessageFormatting {
                 continue
             }
 
-            var trimmedLatex = rawLatex.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            // Unescape double backslashes: models output \\frac which should be \frac for LaTeX
-            // This handles the common case where LLM outputs escaped LaTeX
-            trimmedLatex = trimmedLatex.replacingOccurrences(of: "\\\\", with: "\\")
-            
+            let trimmedLatex = rawLatex.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmedLatex.isEmpty {
                 if match.delimiter.open == "$" {
                     output += String(text[match.range])

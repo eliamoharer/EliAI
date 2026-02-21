@@ -89,26 +89,23 @@ class LLMEngine {
         }
     }
 
+    func reloadCurrentModel() async {
+        guard let path = modelPath else { return }
+        let url = URL(fileURLWithPath: path)
+        AppLogger.info("Reloading model to recover from error...", category: .model)
+        try? await loadModel(at: url)
+    }
+
     func generate(messages: [ChatMessage], systemPrompt: String = "") -> AsyncStream<String> {
         generationTask?.cancel()
         isGenerating = true
         generationError = nil
         lastGenerationWasCancelled = false
 
-        // Validate model state before generation
         guard let llm else {
             isGenerating = false
             return AsyncStream { continuation in
                 continuation.yield("Error: No model loaded.")
-                continuation.finish()
-            }
-        }
-        
-        // Ensure model is in a valid state
-        guard !isLoadingModel else {
-            isGenerating = false
-            return AsyncStream { continuation in
-                continuation.yield("Error: Model is still loading.")
                 continuation.finish()
             }
         }
@@ -173,8 +170,21 @@ class LLMEngine {
                 }
             }
             
-            // Run generation - heartbeat handles timeout detection
-            let responseAny = await llm.respond(to: prompt)
+            // Run generation with timeout
+            let generationTask = Task {
+                await llm.respond(to: prompt)
+            }
+            
+            let timeoutTask = Task {
+                try? await Task.sleep(nanoseconds: UInt64(timeoutInterval * 1_000_000_000))
+                generationTask.cancel()
+                await MainActor.run { [weak self] in
+                    self?.generationError = "Generation timeout: Model took too long to respond"
+                }
+            }
+            
+            let responseAny: Any = await generationTask.value
+            timeoutTask.cancel()
             heartbeatTask.cancel()
             llm.update = { _ in }
 
@@ -274,103 +284,59 @@ class LLMEngine {
             return override
         }
 
-        // Determine if thinking mode is enabled
-        let supportsThinking = supportsThinkingMode()
-        
-        // Build a single, clear, well-structured prompt
-        var prompt = ""
-        
-        // === SECTION 1: IDENTITY (Most Important) ===
-        prompt += """
-        You are EliAI, a helpful conversational AI assistant. Your core purpose is to have natural, engaging conversations with users - answering questions, providing explanations, brainstorming ideas, and being a helpful companion.
-
-        """
-        
-        // === SECTION 2: BEHAVIOR GUIDELINES ===
-        prompt += """
-        ## How You Should Behave
-        
-        - Be conversational, warm, and genuinely helpful
-        - Answer questions directly and thoroughly
-        - When explaining concepts, be clear and use examples
-        - Match the user's tone and level of formality
-        - If you don't know something, say so honestly
-        - For complex topics, break things down step by step
-
-        """
-        
-        // === SECTION 3: THINKING MODE (if applicable) ===
-        if supportsThinking {
-            prompt += """
-        ## Internal Reasoning
-            
-        You may optionally show your reasoning process by placing it between <think\\> and </think\\> tags. This is for transparency - your actual response to the user comes after.
-            
-        Example:
-        <think\\>
-        Let me work through this step by step...
-        </think\\>
-        
-        [Your actual response to the user here]
-
-        """
+        let tools = """
+        Tool Usage:
+        To use a tool, output a JSON object wrapped in <tool_call> tags. Example:
+        <tool_call>
+        {
+          "name": "create_file",
+          "arguments": {
+            "path": "notes/hello.txt",
+            "content": "Hello world"
+          }
         }
+        </tool_call>
         
-        // === SECTION 4: TOOLS ===
-        prompt += """
-        ## Tools Available
+        Available Tools:
+        - create_file(path: String, content: String) - Create a new file
+        - read_file(path: String) - Read file contents
+        - list_files(directory: String) - List files in a directory
+        - create_memory(title: String, content: String) - Store information in memory
+        - create_task(title: String, due: String?, details: String?) - Create a task
         
-        You have access to tools that let you interact with the filesystem and manage tasks. Use them when the user requests file operations.
-        
-        ### How to Use Tools
-        When you need to use a tool, output a JSON object wrapped in 根据地 tags:
-        
-        根据地
-        {"name": "tool_name", "arguments": {"arg": "value"}}
-         bundler
-        
-        ### Available Tools
-        - create_file(path, content) - Create or overwrite a file at the specified path
-        - read_file(path) - Read and return the contents of a file
-        - list_files(directory) - List all files in a directory
-        - create_memory(title, content) - Store information in long-term memory
-        - create_task(title, due, details) - Create a task/reminder
-        
-        ### When to Use Tools
-        USE tools when the user asks you to:
-        - Create, write, or save files
-        - Read or show file contents
-        - List or browse files and directories
-        - Save something to memory for later
-        - Create tasks or reminders
-        
-        Simply respond normally for regular conversation. Only use tools when file/memory/task operations are specifically requested.
+        Use tools ONLY when the user explicitly requests a file operation, task creation, or memory storage. Do not use tools for general conversation or questions.
         """
-        
-        return prompt
-    }
-    
-    /// Determines if the current model/configuration supports thinking mode
-    private func supportsThinkingMode() -> Bool {
-        let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
-        
-        // Explicit thinking mode
-        if style == "thinking" {
-            return true
-        }
-        
-        // Auto-detect from model name or profile
-        if style == "auto" {
-            if let modelPath = modelPath {
-                let lower = modelPath.lowercased()
-                if lower.contains("thinking") || lower.contains("qwen3") {
-                    return true
+
+        func getBasePrompt() -> String {
+            let style = UserDefaults.standard.string(forKey: responseStyleDefaultsKey) ?? "auto"
+            switch style {
+            case "instruct":
+                return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
+            case "thinking":
+                return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nIf you provide reasoning or internal thoughts, place them inside <think>...</think> tags.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
+            case "auto":
+                if let modelPath {
+                    let lower = modelPath.lowercased()
+                    if lower.contains("thinking") {
+                        return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nIf you provide reasoning or internal thoughts, place them inside <think>...</think> tags.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
+                    }
+                    if lower.contains("instruct") {
+                        return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
+                    }
                 }
+                
+                switch activeProfile {
+                case .qwen3:
+                    return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nIf you provide reasoning or internal thoughts, place them inside <think>...</think> tags.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
+                case .lfm25, .generic:
+                    return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
+                }
+            default:
+                return "You are EliAI, an intelligent and helpful assistant. Your primary role is to have natural, helpful conversations with users.\n\nYou have access to tools for file operations, task management, and memory storage. These tools should ONLY be used when:\n- The user explicitly requests a file operation (create, read, list files)\n- The user explicitly asks you to create a task or memory\n- The user's request cannot be fulfilled through conversation alone\n\nWhen users ask questions or want to chat, respond naturally without using tools. Only use tools when there's a clear, explicit request for a tool-based action."
             }
-            return activeProfile == .qwen3
         }
         
-        return false
+        return getBasePrompt() + "\n\n" + tools
     }
 
     private func extractStringResponse(from value: Any) -> String? {
