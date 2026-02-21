@@ -173,24 +173,11 @@ class LLMEngine {
                 }
             }
             
-            // Run generation with timeout
-            let generationTask = Task {
-                await llm.respond(to: prompt)
-            }
-            
-            let timeoutTask = Task {
-                try? await Task.sleep(nanoseconds: UInt64(timeoutInterval * 1_000_000_000))
-                if !generationTask.isCompleted {
-                    generationTask.cancel()
-                    await MainActor.run { [weak self] in
-                        self?.generationError = "Generation timeout: Model took too long to respond"
-                    }
-                }
-            }
-            
-            let responseAny: Any = await generationTask.value
-            timeoutTask.cancel()
+            // Run generation - heartbeat handles timeout detection
+            await llm.respond(to: prompt)
             heartbeatTask.cancel()
+            
+            let responseAny: Any = ""
             llm.update = { _ in }
 
             if Task.isCancelled {
