@@ -944,18 +944,18 @@ private struct MarkdownMathText: UIViewRepresentable {
     }
 
     private func makeAttributedText(coordinator: Coordinator) -> NSAttributedString {
-        // 1. Normalize newlines first so regex scanners work predictably
         let cleanText = MessageFormatting.normalizeNewlines(text.isEmpty ? " " : text)
-        let unescapedDollarText = cleanText.replacingOccurrences(of: "\\$", with: "$")
-        
-        // 2. Extract math tokens from the raw(ish) text -> Protects math from markdown normalization
-        let extracted = MessageFormatting.extractInlineMathPlaceholders(from: unescapedDollarText)
-        
-        // 3. Normalize the markdown (which now has ZZZMATHPLACEHOLDERs that won't trigger list logic)
+
+        // Extract math tokens BEFORE unescaping \$ so that escaped dollars
+        // are correctly skipped by the isEscaped() check in the extractor.
+        let extracted = MessageFormatting.extractInlineMathPlaceholders(from: cleanText)
+
         let normalizedMarkdown = MessageFormatting.normalizeMarkdown(extracted.markdown)
-        
-        // 4. Build structure
-        let mutable = buildStructuredAttributedText(from: normalizedMarkdown)
+
+        // Unescape literal \$ AFTER math extraction so they render as plain $.
+        let displayMarkdown = normalizedMarkdown.replacingOccurrences(of: "\\$", with: "$")
+
+        let mutable = buildStructuredAttributedText(from: displayMarkdown)
         let fullRange = NSRange(location: 0, length: mutable.length)
         if role == .user {
             mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)
@@ -968,9 +968,9 @@ private struct MarkdownMathText: UIViewRepresentable {
             tokens: extracted.tokens,
             coordinator: coordinator
         )
-        applyLooseInlineDollarMathAttachments(to: mutable, coordinator: coordinator)
 
-        // Never leave opaque placeholders in rendered output if markdown mutated token boundaries.
+        // Restore any placeholders that markdown normalization displaced,
+        // then let the loose-dollar pass pick up their restored $...$ form.
         removeAnyResidualInlineMathPlaceholders(from: mutable, tokens: extracted.tokens)
         applyLooseInlineDollarMathAttachments(to: mutable, coordinator: coordinator)
 

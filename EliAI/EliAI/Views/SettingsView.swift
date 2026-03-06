@@ -185,7 +185,7 @@ struct SettingsView: View {
                 HStack {
                     Text("EliAI")
                     Spacer()
-                    Text("Feb 2026")
+                    Text("Mar 2026")
                         .foregroundColor(.secondary)
                 }
                 Text("On-device GGUF inference for LFM 2.5 and Qwen 3 profiles.")

@@ -6,18 +6,23 @@ struct LaTeXPreprocessor {
     /// - Returns: A sanitized, ready-to-render LaTeX string.
     static func preprocess(_ latex: String) -> String {
         var value = latex
-        
-        // standard replacements for SwiftMath compatibility
+
         value = value.replacingOccurrences(of: "\\dfrac", with: "\\frac")
         value = value.replacingOccurrences(of: "\\tfrac", with: "\\frac")
-        value = value.replacingOccurrences(of: "\\displaystyle", with: "")
-        
-        // iOS math rendering can fail on \\boxed in some model outputs; unwrap to plain expression.
+
+        // \boxed is poorly supported by SwiftMath; unwrap to the inner expression.
         value = unwrapMathCommand(named: "boxed", in: value)
-        // value = unwrapMathCommand(named: "text", in: value) // IOSMath supports \text, unwrapping ruins spacing
-        value = unwrapMathCommand(named: "mathrm", in: value)
-        value = unwrapMathCommand(named: "mathbf", in: value)
+
+        // \textit in math mode can cause rendering failures; unwrap it.
         value = unwrapMathCommand(named: "textit", in: value)
+
+        // Strip \displaystyle only when it appears as a standalone prefix
+        // (keeps it when part of a larger expression that depends on it).
+        value = value.replacingOccurrences(
+            of: #"^\\displaystyle\s*"#,
+            with: "",
+            options: .regularExpression
+        )
 
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }

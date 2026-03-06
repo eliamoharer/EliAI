@@ -28,8 +28,13 @@ enum MessageFormatting {
     static func normalizeMarkdown(_ text: String) -> String {
         var value = normalizeNewlines(text)
 
-        // Handle literal escaped newlines after math placeholders are extracted.
-        value = value.replacingOccurrences(of: "\\n", with: "\n")
+        // Replace literal \n (backslash + n) with real newlines, but NOT when
+        // followed by a letter — that would corrupt LaTeX commands like \nu, \nabla, \neg.
+        value = value.replacingOccurrences(
+            of: #"\\n(?![a-zA-Z])"#,
+            with: "\n",
+            options: .regularExpression
+        )
 
         // Move inline headings onto their own line when models emit "... ### Header".
         value = value.replacingOccurrences(
@@ -268,11 +273,6 @@ enum MessageFormatting {
         let words = content
             .split(whereSeparator: { $0.isWhitespace })
             .filter { !$0.isEmpty }
-
-        if delimiter.open == "$" {
-            // Render all explicit $...$ spans as math to avoid false negatives.
-            return true
-        }
 
         if looksLikeCurrencyAmount(content) {
             return false

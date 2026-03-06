@@ -527,11 +527,6 @@ struct ChatView: View {
         var recoveryAttempts = 0
         var enforcedToolRetryUsed = false
         var forceToolCallNextStep = false
-        let toolEnforcementPrompt = """
-        You must use tools for file, memory, and task operations.
-        For this turn, respond with exactly one valid <tool_call>...</tool_call> block and no extra text.
-        Do not invent file listings, file contents, or tool errors.
-        """
 
         while keepGenerating && steps < maxSteps {
             steps += 1
@@ -541,13 +536,19 @@ struct ChatView: View {
             var assistantMessage = ChatMessage(role: .assistant, content: "")
             chatManager.addMessage(assistantMessage)
 
-            let history = Array(chatManager.currentSession?.messages.dropLast() ?? ArraySlice<ChatMessage>())
+            var history = Array(chatManager.currentSession?.messages.dropLast() ?? ArraySlice<ChatMessage>())
             let latestUserPrompt = history.last(where: { $0.role == .user })?.content ?? ""
             let hasToolResultAfterLatestUser = hasToolOutputAfterLatestUser(in: history)
-            let stream = llmEngine.generate(
-                messages: history,
-                systemPrompt: forceToolCallNextStep ? toolEnforcementPrompt : ""
-            )
+
+            // Inject a nudge into history instead of replacing the system prompt,
+            // so the model still sees full tool definitions.
+            if forceToolCallNextStep {
+                history.append(ChatMessage(
+                    role: .system,
+                    content: "You MUST respond with a <tool_call> block for this request."
+                ))
+            }
+            let stream = llmEngine.generate(messages: history)
             forceToolCallNextStep = false
 
             for await token in stream {

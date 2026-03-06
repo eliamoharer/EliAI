@@ -3,12 +3,12 @@ import Observation
 @preconcurrency import LLM
 
 enum LLMEngineError: LocalizedError {
-    case modelInitializationFailed(modelName: String)
+    case modelInitializationFailed
 
     var errorDescription: String? {
         switch self {
-        case let .modelInitializationFailed(modelName):
-            return "Model initialization failed for \(modelName). The model may use an unsupported GGUF architecture/quantization for this runtime, or the device may not have enough memory."
+        case .modelInitializationFailed:
+            return "Model initialization failed."
         }
     }
 }
@@ -146,10 +146,12 @@ class LLMEngine {
                 let template: Template
                 switch profile {
                 case .qwen3, .lfm25, .generic:
-                    template = .chatML("You are EliAI, a helpful assistant with local tools for files, memory, and tasks. Never invent filesystem results.")
+                    // Empty system here — the real system prompt is built by
+                    // systemPromptForCurrentStyle() and injected via formatPrompt().
+                    template = .chatML("")
                 }
                 guard let loadedLLM = LLM(from: modelURL, template: template) else {
-                    throw LLMEngineError.modelInitializationFailed(modelName: modelURL.lastPathComponent)
+                    throw LLMEngineError.modelInitializationFailed
                 }
                 return loadedLLM
             }.value
@@ -407,52 +409,36 @@ class LLMEngine {
             }
         }()
 
-        let base = """
-        You are EliAI, a local-first assistant with built-in tools for files, memory, and tasks.
+        let identity = "You are EliAI, a helpful AI assistant running locally on this device."
 
-        Response Guidelines:
-        - Give direct, useful answers in clear Markdown.
-        - Use LaTeX for equations: inline $...$ and display $$...$$.
-        - If a required field is missing, ask one concise clarification question.
+        let format = """
+        Respond in clear Markdown. Use LaTeX for math: inline $...$ and display $$...$$.
+        If required information is missing, ask one concise question before proceeding.
         """
 
         let thinking = useThinkingTags
-            ? "When reasoning is required, wrap your internal thought process strictly inside <think>...</think> tags. Keep the final user-facing answer outside these tags."
+            ? "For complex questions, think step-by-step inside <think>...</think> tags before giving your final answer."
             : ""
 
         let tools = """
-        Tool Use Policy & Contract:
-        - For file/memory/task actions, use a tool instead of describing what you would do.
-        - Never reply that you cannot create or read files directly; perform those actions through tools.
-        - Execute exactly one tool call per message.
-        - If required arguments are missing (path, content, title), ask only for the missing fields.
-        - When calling a tool, your full response must be only the tool call block with no extra text.
-        - Use tool names and argument keys exactly as listed.
-        - Never invent file names, file contents, directory listings, or read/write errors.
-        - Only report file/memory/task results that are explicitly present in tool output.
+        You have tools for files, memory, and tasks. When asked to perform these actions, call a tool — never describe what you would do instead.
 
-        Example:
-        User asks: "Create notes/todo.txt with content Buy milk"
-        Assistant replies:
+        To call a tool, output:
         <tool_call>
-        {
-          "name": "create_file",
-          "arguments": {
-            "path": "notes/todo.txt",
-            "content": "Buy milk"
-          }
-        }
+        {"name": "TOOL_NAME", "arguments": {"key": "value"}}
         </tool_call>
 
-        Available Tools:
-        - create_file(path: String, content: String)
-        - read_file(path: String)
-        - list_files(directory: String)
-        - create_memory(title: String, content: String)
-        - create_task(title: String, due: String?, details: String?)
+        Tools:
+        - create_file(path, content) — create or overwrite a file
+        - read_file(path) — read file contents
+        - list_files(directory) — list files; omit directory for root
+        - create_memory(title, content) — save a persistent note
+        - create_task(title, due?, details?) — create a task
+
+        Never fabricate file contents, directory listings, or tool errors. Only report what tool output actually returns.
         """
 
-        return [base, thinking, tools]
+        return [identity, format, thinking, tools]
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: "\n\n")
     }
