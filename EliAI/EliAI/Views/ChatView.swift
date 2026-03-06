@@ -1,6 +1,5 @@
 import SwiftUI
 import UniformTypeIdentifiers
-import UIKit
 
 struct ChatView: View {
     var chatManager: ChatManager
@@ -14,7 +13,6 @@ struct ChatView: View {
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
     @State private var showFileImporter = false
-    @State private var keyboardOverlap: CGFloat = 0
     @State private var scrollRequestID: Int = 0
     @State private var isAgentLoopRunning = false
     private let bottomAnchorID = "chatBottomAnchor"
@@ -57,6 +55,8 @@ struct ChatView: View {
             topGrabber
             headerSection
             messagesSection
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             inputSection
         }
         .background(chatPanelBackground)
@@ -74,12 +74,6 @@ struct ChatView: View {
                 modelDownloader.error = "Import failed: \(error.localizedDescription)"
                 modelDownloader.log = "Import failed."
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
-            handleKeyboardFrameChange(notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
-            handleKeyboardFrameChange(notification, forceHide: true)
         }
     }
 
@@ -428,7 +422,7 @@ struct ChatView: View {
             }
             .padding(.horizontal)
             .padding(.top, 8)
-            .padding(.bottom, inputBottomInset)
+            .padding(.bottom, isCollapsed ? 12 : 8)
         }
         .background(
             Rectangle()
@@ -440,16 +434,6 @@ struct ChatView: View {
                 )
                 .ignoresSafeArea(edges: .bottom)
         )
-    }
-
-    private var inputBottomInset: CGFloat {
-        if isCollapsed {
-            return 12
-        }
-        if keyboardOverlap > 0 {
-            return keyboardOverlap + 12
-        }
-        return 30
     }
 
     private var chatPanelBackground: some View {
@@ -643,54 +627,6 @@ struct ChatView: View {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(AppConstants.UI.scrollStabilizationDelaySeconds * 1_000_000_000))
             scrollToBottom(proxy: proxy, animated: false)
-        }
-    }
-
-    private func handleKeyboardFrameChange(_ notification: Notification, forceHide: Bool = false) {
-        let userInfo = notification.userInfo ?? [:]
-        let duration = (userInfo[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-        let curveRawValue = (userInfo[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? UIView.AnimationCurve.easeInOut.rawValue
-        let curve = UIView.AnimationCurve(rawValue: curveRawValue) ?? .easeInOut
-
-        let overlap: CGFloat
-        if forceHide {
-            overlap = 0
-        } else if let frameValue = userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
-            overlap = calculateKeyboardOverlap(for: frameValue)
-        } else {
-            overlap = 0
-        }
-
-        withAnimation(animation(for: curve, duration: duration)) {
-            keyboardOverlap = max(0, overlap)
-        }
-    }
-
-    private func calculateKeyboardOverlap(for keyboardFrame: CGRect) -> CGFloat {
-        guard let windowScene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first,
-              let keyWindow = windowScene.windows.first(where: \.isKeyWindow) else {
-            return 0
-        }
-
-        let localFrame = keyWindow.convert(keyboardFrame, from: nil)
-        let overlap = keyWindow.bounds.maxY - localFrame.minY
-        return max(0, overlap)
-    }
-
-    private func animation(for curve: UIView.AnimationCurve, duration: Double) -> Animation {
-        switch curve {
-        case .easeInOut:
-            return .easeInOut(duration: duration)
-        case .easeIn:
-            return .easeIn(duration: duration)
-        case .easeOut:
-            return .easeOut(duration: duration)
-        case .linear:
-            return .linear(duration: duration)
-        @unknown default:
-            return .easeOut(duration: duration)
         }
     }
 
