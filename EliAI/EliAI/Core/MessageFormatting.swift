@@ -270,11 +270,7 @@ enum MessageFormatting {
             .filter { !$0.isEmpty }
 
         if delimiter.open == "$" {
-            // If the model chose $...$, prefer rendering it as math unless it's clearly long prose.
-            let looksLongProse = words.count > 10 && !hasLatexCommand && !hasOperators && !hasMathBraces && !hasBrackets
-            if looksLongProse {
-                return false
-            }
+            // Render all explicit $...$ spans as math to avoid false negatives.
             return true
         }
 

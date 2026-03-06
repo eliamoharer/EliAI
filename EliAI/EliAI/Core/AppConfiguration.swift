@@ -45,6 +45,7 @@ struct AppConfiguration {
         static let responseStyle = "responseStyle"
         static let samplingTemperature = "samplingTemperature"
         static let samplingTopK = "samplingTopK"
+        static let samplingRepeatPenalty = "samplingRepeatPenalty"
         static let selectedRemoteModelID = "selectedRemoteModelID"
         static let activeModelName = "activeModelName"
     }

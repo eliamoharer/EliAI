@@ -444,12 +444,12 @@ struct ChatView: View {
 
     private var inputBottomInset: CGFloat {
         if isCollapsed {
-            return 20
+            return 24
         }
         if keyboardOverlap > 0 {
-            return keyboardOverlap + 6
+            return keyboardOverlap + 10
         }
-        return 20
+        return 24
     }
 
     private var chatPanelBackground: some View {

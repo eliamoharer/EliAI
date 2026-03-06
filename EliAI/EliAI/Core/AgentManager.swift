@@ -10,25 +10,36 @@ class AgentManager {
     }
     
     func processToolCalls(in text: String) async -> String? {
-        let payloads = extractToolCallPayloads(from: text)
-        let candidates = payloads.isEmpty ? extractLooseToolCallPayloads(from: text) : payloads
-        let uniquePayloads = Array(NSOrderedSet(array: candidates)) as? [String] ?? candidates
-        guard !uniquePayloads.isEmpty else { return nil }
+        let strictPayloads = uniqueStrings(in: extractToolCallPayloads(from: text))
+        if !strictPayloads.isEmpty {
+            var toolOutputs: [String] = []
+            for payload in strictPayloads {
+                guard let toolCall = parseToolCall(from: payload) else {
+                    AppLogger.warning("Failed to parse tool_call payload.", category: .agent)
+                    toolOutputs.append("<tool_result>\nError: Invalid tool_call payload. Use valid JSON with string arguments.\n</tool_result>")
+                    continue
+                }
+
+                AppLogger.info("Tool call parsed: \(toolCall.name)", category: .agent)
+                let output = await execute(toolCall)
+                toolOutputs.append("<tool_result>\n\(output)\n</tool_result>")
+            }
+            return toolOutputs.isEmpty ? nil : toolOutputs.joined(separator: "\n\n")
+        }
+
+        // Loose fallback: only execute payloads that parse cleanly; ignore noisy false positives.
+        let loosePayloads = uniqueStrings(in: extractLooseToolCallPayloads(from: text))
+        guard !loosePayloads.isEmpty else { return nil }
 
         var toolOutputs: [String] = []
-
-        for payload in uniquePayloads {
+        for payload in loosePayloads {
             guard let toolCall = parseToolCall(from: payload) else {
-                AppLogger.warning("Failed to parse tool_call payload.", category: .agent)
-                toolOutputs.append("<tool_result>\nError: Invalid tool_call payload. Use valid JSON with string arguments.\n</tool_result>")
                 continue
             }
-
-            AppLogger.info("Tool call parsed: \(toolCall.name)", category: .agent)
+            AppLogger.info("Loose tool call parsed: \(toolCall.name)", category: .agent)
             let output = await execute(toolCall)
             toolOutputs.append("<tool_result>\n\(output)\n</tool_result>")
         }
-
         return toolOutputs.isEmpty ? nil : toolOutputs.joined(separator: "\n\n")
     }
     
@@ -53,7 +64,11 @@ class AgentManager {
                 return content
 
             case "list_files":
-                let directory = toolCall.arguments["directory"] ?? ""
+                let directory = toolCall.arguments["directory"] ??
+                    toolCall.arguments["path"] ??
+                    toolCall.arguments["folder"] ??
+                    toolCall.arguments["dir"] ??
+                    ""
                 let files = try fileSystem.listFiles(directory: directory)
                 AppLogger.info("Tool executed: list_files directory=\(directory)", category: .agent)
                 return files.joined(separator: "\n")
@@ -141,7 +156,9 @@ class AgentManager {
                 continue
             }
 
-            let argumentsAny = json["arguments"] as? [String: Any] ?? [:]
+            let argumentsAny = (json["arguments"] as? [String: Any]) ??
+                (json["args"] as? [String: Any]) ??
+                [:]
             var arguments: [String: String] = [:]
             for (key, value) in argumentsAny {
                 arguments[key] = stringifyJSONValue(value)
@@ -165,9 +182,11 @@ class AgentManager {
             with: "$1",
             options: .regularExpression
         )
+        let extractedObjectFromTrimmed = extractFirstJSONObject(from: trimmed)
+        let extractedObjectFromSanitized = extractFirstJSONObject(from: sanitizedBackslashes)
 
         var candidates: [String] = []
-        for candidate in [trimmed, sanitizedBackslashes, withoutTrailingCommas] {
+        for candidate in [trimmed, sanitizedBackslashes, withoutTrailingCommas, extractedObjectFromTrimmed, extractedObjectFromSanitized] {
             let normalized = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
             if !normalized.isEmpty && !candidates.contains(normalized) {
                 candidates.append(normalized)
@@ -193,7 +212,7 @@ class AgentManager {
 
     private func stringifyJSONValue(_ value: Any) -> String {
         if let string = value as? String {
-            return string
+            return restoreLikelyBackslashEscapes(in: string)
         }
         if value is NSNull {
             return ""
@@ -208,14 +227,14 @@ class AgentManager {
         if let dictionary = value as? [String: Any],
            let data = try? JSONSerialization.data(withJSONObject: dictionary, options: []),
            let string = String(data: data, encoding: .utf8) {
-            return string
+            return restoreLikelyBackslashEscapes(in: string)
         }
         if let array = value as? [Any],
            let data = try? JSONSerialization.data(withJSONObject: array, options: []),
            let string = String(data: data, encoding: .utf8) {
-            return string
+            return restoreLikelyBackslashEscapes(in: string)
         }
-        return String(describing: value)
+        return restoreLikelyBackslashEscapes(in: String(describing: value))
     }
 
     private func sanitizeJSONString(_ jsonString: String) -> String {
@@ -278,6 +297,66 @@ class AgentManager {
         return result
     }
 
+    private func extractFirstJSONObject(from text: String) -> String {
+        guard let start = text.firstIndex(of: "{") else {
+            return text
+        }
+
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var index = start
+
+        while index < text.endIndex {
+            let character = text[index]
+
+            if escaped {
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == "\"" {
+                inString.toggle()
+            } else if !inString {
+                if character == "{" {
+                    depth += 1
+                } else if character == "}" {
+                    depth -= 1
+                    if depth == 0 {
+                        let end = text.index(after: index)
+                        return String(text[start..<end])
+                    }
+                }
+            }
+
+            index = text.index(after: index)
+        }
+
+        return text
+    }
+
+    private func restoreLikelyBackslashEscapes(in value: String) -> String {
+        guard !value.isEmpty else {
+            return value
+        }
+
+        var output = ""
+        for character in value {
+            switch character {
+            case "\u{0008}":
+                output += "\\b"
+            case "\u{0009}":
+                output += "\\t"
+            case "\u{000C}":
+                output += "\\f"
+            case "\u{000D}":
+                output += "\\r"
+            default:
+                output.append(character)
+            }
+        }
+        return output
+    }
+
     private func requiredArgument(_ name: String, in arguments: [String: String]) -> String? {
         guard let value = arguments[name]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else {
@@ -292,6 +371,16 @@ class AgentManager {
             .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return cleaned.isEmpty ? UUID().uuidString : cleaned
+    }
+
+    private func uniqueStrings(in values: [String]) -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for value in values where !seen.contains(value) {
+            seen.insert(value)
+            ordered.append(value)
+        }
+        return ordered
     }
 }
 

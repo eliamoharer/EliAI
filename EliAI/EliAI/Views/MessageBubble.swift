@@ -946,9 +946,10 @@ private struct MarkdownMathText: UIViewRepresentable {
     private func makeAttributedText(coordinator: Coordinator) -> NSAttributedString {
         // 1. Normalize newlines first so regex scanners work predictably
         let cleanText = MessageFormatting.normalizeNewlines(text.isEmpty ? " " : text)
+        let unescapedDollarText = cleanText.replacingOccurrences(of: "\\$", with: "$")
         
         // 2. Extract math tokens from the raw(ish) text -> Protects math from markdown normalization
-        let extracted = MessageFormatting.extractInlineMathPlaceholders(from: cleanText)
+        let extracted = MessageFormatting.extractInlineMathPlaceholders(from: unescapedDollarText)
         
         // 3. Normalize the markdown (which now has ZZZMATHPLACEHOLDERs that won't trigger list logic)
         let normalizedMarkdown = MessageFormatting.normalizeMarkdown(extracted.markdown)

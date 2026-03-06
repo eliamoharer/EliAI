@@ -3,12 +3,12 @@ import Observation
 @preconcurrency import LLM
 
 enum LLMEngineError: LocalizedError {
-    case modelInitializationFailed
+    case modelInitializationFailed(modelName: String)
 
     var errorDescription: String? {
         switch self {
-        case .modelInitializationFailed:
-            return "Model initialization failed."
+        case let .modelInitializationFailed(modelName):
+            return "Model initialization failed for \(modelName). The model may use an unsupported GGUF architecture/quantization for this runtime, or the device may not have enough memory."
         }
     }
 }
@@ -118,6 +118,7 @@ class LLMEngine {
     private let responseStyleDefaultsKey = AppConfiguration.Keys.responseStyle
     private let samplingTemperatureDefaultsKey = AppConfiguration.Keys.samplingTemperature
     private let samplingTopKDefaultsKey = AppConfiguration.Keys.samplingTopK
+    private let samplingRepeatPenaltyDefaultsKey = AppConfiguration.Keys.samplingRepeatPenalty
 
     func preflightModel(at url: URL) throws -> ModelValidationReport {
         try ModelValidator.validateModel(at: url)
@@ -148,7 +149,7 @@ class LLMEngine {
                     template = .chatML("You are EliAI, a helpful assistant with local tools for files, memory, and tasks. Never invent filesystem results.")
                 }
                 guard let loadedLLM = LLM(from: modelURL, template: template) else {
-                    throw LLMEngineError.modelInitializationFailed
+                    throw LLMEngineError.modelInitializationFailed(modelName: modelURL.lastPathComponent)
                 }
                 return loadedLLM
             }.value
@@ -356,12 +357,13 @@ class LLMEngine {
         let defaults = UserDefaults.standard
         let temperature = (defaults.object(forKey: samplingTemperatureDefaultsKey) as? NSNumber)?.doubleValue ?? base.temperature
         let topKValue = (defaults.object(forKey: samplingTopKDefaultsKey) as? NSNumber)?.intValue ?? base.topK
+        let repeatPenalty = (defaults.object(forKey: samplingRepeatPenaltyDefaultsKey) as? NSNumber)?.doubleValue ?? base.repeatPenalty
 
         return SamplingPreset(
             temperature: min(max(temperature, 0.0), 1.5),
             topK: min(max(topKValue, 1), 200),
             topP: base.topP,
-            repeatPenalty: base.repeatPenalty
+            repeatPenalty: min(max(repeatPenalty, 0.8), 1.5)
         )
     }
 

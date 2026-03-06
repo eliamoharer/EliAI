@@ -129,6 +129,7 @@ struct ContentView: View {
                 AppConfiguration.Keys.responseStyle: "auto",
                 AppConfiguration.Keys.samplingTemperature: ModelProfile.lfm25.sampling.temperature,
                 AppConfiguration.Keys.samplingTopK: ModelProfile.lfm25.sampling.topK,
+                AppConfiguration.Keys.samplingRepeatPenalty: ModelProfile.lfm25.sampling.repeatPenalty,
                 AppConfiguration.Keys.selectedRemoteModelID: AppConfiguration.defaultModelID,
                 AppConfiguration.Keys.activeModelName: AppConfiguration.defaultModelFileName
             ])

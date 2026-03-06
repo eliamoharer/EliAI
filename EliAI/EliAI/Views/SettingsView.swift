@@ -7,8 +7,10 @@ struct SettingsView: View {
     private let responseStyleKey = AppConfiguration.Keys.responseStyle
     private let samplingTemperatureKey = AppConfiguration.Keys.samplingTemperature
     private let samplingTopKKey = AppConfiguration.Keys.samplingTopK
+    private let samplingRepeatPenaltyKey = AppConfiguration.Keys.samplingRepeatPenalty
     @State private var temperatureInput: String = ""
     @State private var topKInput: String = ""
+    @State private var repeatPenaltyInput: String = ""
     @State private var samplingStatusMessage: String = ""
     @State private var samplingStatusIsError = false
     @State private var isApplyingSampling = false
@@ -98,9 +100,18 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    Text("Repeat penalty: \(String(format: "%.2f", samplingBase.repeatPenalty))")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Repeat penalty")
+                        TextField("1.05", text: $repeatPenaltyInput)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.decimalPad)
+                        Text("Range: 0.80 to 1.50")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text("Model default: \(String(format: "%.2f", samplingBase.repeatPenalty))")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
 
                     Button(isApplyingSampling ? "Saving..." : "Save Values + Reload Model") {
                         Task { await saveSamplingAndReload() }
@@ -110,6 +121,7 @@ struct SettingsView: View {
                     Button("Reset Inputs To Model Defaults") {
                         temperatureInput = String(format: "%.2f", samplingBase.temperature)
                         topKInput = "\(samplingBase.topK)"
+                        repeatPenaltyInput = String(format: "%.2f", samplingBase.repeatPenalty)
                         samplingStatusMessage = ""
                     }
 
@@ -189,16 +201,6 @@ struct SettingsView: View {
         llmEngine?.activeProfile.sampling ?? ModelProfile.lfm25.sampling
     }
 
-    private var clampedTemperature: Double {
-        let storedNumber = UserDefaults.standard.object(forKey: samplingTemperatureKey) as? NSNumber
-        return clampTemperature(storedNumber?.doubleValue ?? samplingBase.temperature)
-    }
-
-    private var clampedTopK: Int {
-        let storedNumber = UserDefaults.standard.object(forKey: samplingTopKKey) as? NSNumber
-        return clampTopK(storedNumber?.intValue ?? samplingBase.topK)
-    }
-
     private func clampTemperature(_ value: Double) -> Double {
         min(max(value, 0.0), 1.5)
     }
@@ -207,16 +209,23 @@ struct SettingsView: View {
         min(max(value, 1), 200)
     }
 
+    private func clampRepeatPenalty(_ value: Double) -> Double {
+        min(max(value, 0.8), 1.5)
+    }
+
     private func syncSamplingInputsFromStoredValues() {
         let defaults = UserDefaults.standard
         let storedTemperature = (defaults.object(forKey: samplingTemperatureKey) as? NSNumber)?.doubleValue
         let storedTopK = (defaults.object(forKey: samplingTopKKey) as? NSNumber)?.intValue
+        let storedRepeatPenalty = (defaults.object(forKey: samplingRepeatPenaltyKey) as? NSNumber)?.doubleValue
 
         let temperature = clampTemperature(storedTemperature ?? samplingBase.temperature)
         let topK = clampTopK(storedTopK ?? samplingBase.topK)
+        let repeatPenalty = clampRepeatPenalty(storedRepeatPenalty ?? samplingBase.repeatPenalty)
 
         temperatureInput = String(format: "%.2f", temperature)
         topKInput = "\(topK)"
+        repeatPenaltyInput = String(format: "%.2f", repeatPenalty)
     }
 
     private func parseTemperatureInput() -> Double? {
@@ -241,6 +250,14 @@ struct SettingsView: View {
         return nil
     }
 
+    private func parseRepeatPenaltyInput() -> Double? {
+        let normalized = repeatPenaltyInput
+            .replacingOccurrences(of: ",", with: ".")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        return Double(normalized)
+    }
+
     @MainActor
     private func saveSamplingAndReload() async {
         guard let parsedTemperature = parseTemperatureInput() else {
@@ -253,14 +270,22 @@ struct SettingsView: View {
             samplingStatusIsError = true
             return
         }
+        guard let parsedRepeatPenalty = parseRepeatPenaltyInput() else {
+            samplingStatusMessage = "Enter a valid repeat penalty."
+            samplingStatusIsError = true
+            return
+        }
 
         let temperature = clampTemperature(parsedTemperature)
         let topK = clampTopK(parsedTopK)
+        let repeatPenalty = clampRepeatPenalty(parsedRepeatPenalty)
 
         UserDefaults.standard.set(temperature, forKey: samplingTemperatureKey)
         UserDefaults.standard.set(topK, forKey: samplingTopKKey)
+        UserDefaults.standard.set(repeatPenalty, forKey: samplingRepeatPenaltyKey)
         temperatureInput = String(format: "%.2f", temperature)
         topKInput = "\(topK)"
+        repeatPenaltyInput = String(format: "%.2f", repeatPenalty)
 
         guard let engine = llmEngine, engine.isLoaded else {
             samplingStatusMessage = "Values saved. Load a model to apply them."
