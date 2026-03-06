@@ -556,18 +556,17 @@ struct ChatView: View {
 
                 // Attempt recovery if model error detected
                 if let error = llmEngine.generationError, 
-                   (error.contains("timeout") || error.contains("no output") || error.contains("error")),
+                   shouldAttemptModelRecovery(for: error),
                    recoveryAttempts < AppConstants.LLMEngine.maxRecoveryAttempts {
                     recoveryAttempts += 1
                     await MainActor.run {
                         chatManager.removeMessage(id: assistantMessage.id)
                     }
-                    AppLogger.warning("Generation error detected. Attempting recovery (attempt \(recoveryAttempts)/\(AppConstants.LLMEngine.maxRecoveryAttempts))...", category: .inference)
-                    
-                    // Wait for model to be ready using proper async coordination
-                    let modelReady = await waitForModelReady()
-                    
-                    if modelReady {
+                    AppLogger.warning("Generation error detected. Reloading model (attempt \(recoveryAttempts)/\(AppConstants.LLMEngine.maxRecoveryAttempts))...", category: .inference)
+
+                    let recovered = await llmEngine.reloadCurrentModel()
+
+                    if recovered {
                         // Clear error state before retry
                         await MainActor.run {
                             llmEngine.generationError = nil
@@ -575,7 +574,7 @@ struct ChatView: View {
                         keepGenerating = true
                         continue
                     } else {
-                        AppLogger.error("Model recovery failed. Model is not ready.", category: .inference)
+                        AppLogger.error("Model recovery failed. Reload did not succeed.", category: .inference)
                     }
                 }
 
@@ -620,28 +619,12 @@ struct ChatView: View {
             chatManager.addMessage(warning)
         }
     }
-    
-    /// Waits for the model to be ready using proper async coordination
-    private func waitForModelReady() async -> Bool {
-        let maxWaitAttempts = AppConstants.AgentLoop.recoveryMaxWaitAttempts
-        let waitInterval = AppConstants.AgentLoop.recoveryWaitIntervalSeconds
-        
-        // If model is already ready, return immediately
-        if llmEngine.isLoaded && !llmEngine.isLoadingModel {
-            return true
-        }
-        
-        // Wait for model loading to complete
-        for _ in 0..<maxWaitAttempts {
-            if llmEngine.isLoaded && !llmEngine.isLoadingModel {
-                // Brief cooldown after load
-                try? await Task.sleep(nanoseconds: UInt64(AppConstants.AgentLoop.recoveryCooldownSeconds * 1_000_000_000))
-                return true
-            }
-            try? await Task.sleep(nanoseconds: UInt64(waitInterval * 1_000_000_000))
-        }
-        
-        return llmEngine.isLoaded && !llmEngine.isLoadingModel
+
+    private func shouldAttemptModelRecovery(for error: String) -> Bool {
+        let normalized = error.lowercased()
+        return normalized.contains("timeout") ||
+            normalized.contains("unresponsive") ||
+            normalized.contains("no output")
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {

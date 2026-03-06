@@ -6,7 +6,7 @@ struct AppConstants {
     struct LLMEngine {
         static let maxPromptCharacters = 16_000
         static let maxHistoryMessages = 24
-        static let generationTimeoutSeconds: TimeInterval = 60.0
+        static let generationTimeoutSeconds: TimeInterval = 90.0
         static let streamHeartbeatIntervalSeconds: TimeInterval = 2.0
         static let maxRecoveryAttempts = 2
     }

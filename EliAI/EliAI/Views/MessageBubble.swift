@@ -590,6 +590,15 @@ struct MessageBubble: View {
             MathDelimiter(open: "\\begin{equation}", close: "\\end{equation}", display: true),
             MathDelimiter(open: "\\begin{align*}", close: "\\end{align*}", display: true),
             MathDelimiter(open: "\\begin{align}", close: "\\end{align}", display: true),
+            MathDelimiter(open: "\\begin{gather*}", close: "\\end{gather*}", display: true),
+            MathDelimiter(open: "\\begin{gather}", close: "\\end{gather}", display: true),
+            MathDelimiter(open: "\\begin{aligned}", close: "\\end{aligned}", display: true),
+            MathDelimiter(open: "\\begin{array}", close: "\\end{array}", display: true),
+            MathDelimiter(open: "\\begin{matrix}", close: "\\end{matrix}", display: true),
+            MathDelimiter(open: "\\begin{bmatrix}", close: "\\end{bmatrix}", display: true),
+            MathDelimiter(open: "\\begin{pmatrix}", close: "\\end{pmatrix}", display: true),
+            MathDelimiter(open: "\\begin{vmatrix}", close: "\\end{vmatrix}", display: true),
+            MathDelimiter(open: "\\begin{Vmatrix}", close: "\\end{Vmatrix}", display: true),
             MathDelimiter(open: "\\begin{multline*}", close: "\\end{multline*}", display: true),
             MathDelimiter(open: "\\begin{multline}", close: "\\end{multline}", display: true),
             MathDelimiter(open: "\\begin{cases*}", close: "\\end{cases*}", display: true),
@@ -1155,33 +1164,7 @@ private struct MarkdownMathText: UIViewRepresentable {
         if let cached = coordinator.imageCache[cacheKey] {
             image = cached
         } else {
-            let rendered = renderInlineMathImage(latex: latex, color: color, fontSize: mathFontSize)
-            if rendered.size.width <= AppConstants.LaTeX.fallbackImageMinSize || 
-               rendered.size.height <= AppConstants.LaTeX.fallbackImageMinSize {
-                // Try preprocessing the LaTeX more aggressively before falling back
-                let preprocessed = LaTeXPreprocessor.preprocess(latex)
-                if preprocessed != latex {
-                    let retryRendered = renderInlineMathImage(latex: preprocessed, color: color, fontSize: mathFontSize)
-                    if retryRendered.size.width > AppConstants.LaTeX.fallbackImageMinSize && 
-                       retryRendered.size.height > AppConstants.LaTeX.fallbackImageMinSize {
-                        image = retryRendered
-                    } else {
-                        image = renderFallbackInlineTextImage(
-                            latex: latex,
-                            color: color,
-                            fontSize: max(16, referenceFont.pointSize + 1)
-                        )
-                    }
-                } else {
-                    image = renderFallbackInlineTextImage(
-                        latex: latex,
-                        color: color,
-                        fontSize: max(16, referenceFont.pointSize + 1)
-                    )
-                }
-            } else {
-                image = rendered
-            }
+            image = renderInlineMathImage(latex: latex, color: color, fontSize: mathFontSize)
             coordinator.imageCache[cacheKey] = image
         }
 
@@ -1242,10 +1225,15 @@ private struct MarkdownMathText: UIViewRepresentable {
 
     private func usesDisplayMathLayout(_ latex: String) -> Bool {
         let normalized = latex.replacingOccurrences(of: " ", with: "")
-        if normalized.contains("\\begin{cases}") || normalized.contains("\\begin{cases*}") {
-            return true
-        }
-        if normalized.contains("\\begin{aligned}") || normalized.contains("\\begin{matrix}") {
+        let displayEnvironments = [
+            "\\begin{cases}", "\\begin{cases*}",
+            "\\begin{aligned}", "\\begin{array}",
+            "\\begin{matrix}", "\\begin{bmatrix}",
+            "\\begin{pmatrix}", "\\begin{vmatrix}",
+            "\\begin{Vmatrix}", "\\begin{gather}",
+            "\\begin{gather*}"
+        ]
+        if displayEnvironments.contains(where: { normalized.contains($0) }) {
             return true
         }
         if normalized.contains("\\\\") {
