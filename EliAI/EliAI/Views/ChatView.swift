@@ -444,12 +444,12 @@ struct ChatView: View {
 
     private var inputBottomInset: CGFloat {
         if isCollapsed {
-            return 16
+            return 20
         }
         if keyboardOverlap > 0 {
-            return keyboardOverlap + 2
+            return keyboardOverlap + 6
         }
-        return 16
+        return 20
     }
 
     private var chatPanelBackground: some View {
@@ -525,6 +525,13 @@ struct ChatView: View {
         var steps = 0
         let maxSteps = AppConstants.AgentLoop.maxSteps
         var recoveryAttempts = 0
+        var enforcedToolRetryUsed = false
+        var forceToolCallNextStep = false
+        let toolEnforcementPrompt = """
+        You must use tools for file, memory, and task operations.
+        For this turn, respond with exactly one valid <tool_call>...</tool_call> block and no extra text.
+        Do not invent file listings, file contents, or tool errors.
+        """
 
         while keepGenerating && steps < maxSteps {
             steps += 1
@@ -534,8 +541,14 @@ struct ChatView: View {
             var assistantMessage = ChatMessage(role: .assistant, content: "")
             chatManager.addMessage(assistantMessage)
 
-            let history = chatManager.currentSession?.messages.dropLast()
-            let stream = llmEngine.generate(messages: Array(history ?? []))
+            let history = Array(chatManager.currentSession?.messages.dropLast() ?? ArraySlice<ChatMessage>())
+            let latestUserPrompt = history.last(where: { $0.role == .user })?.content ?? ""
+            let hasToolResultAfterLatestUser = hasToolOutputAfterLatestUser(in: history)
+            let stream = llmEngine.generate(
+                messages: history,
+                systemPrompt: forceToolCallNextStep ? toolEnforcementPrompt : ""
+            )
+            forceToolCallNextStep = false
 
             for await token in stream {
                 fullResponse += token
@@ -626,7 +639,22 @@ struct ChatView: View {
                 }
             }
 
-            if let toolOutput = await agentManager.processToolCalls(in: fullResponse) {
+            let toolOutput = await agentManager.processToolCalls(in: fullResponse)
+            if toolOutput == nil,
+               !enforcedToolRetryUsed,
+               !hasToolResultAfterLatestUser,
+               requiresToolCall(for: latestUserPrompt),
+               !containsToolInvocation(in: fullResponse) {
+                enforcedToolRetryUsed = true
+                forceToolCallNextStep = true
+                await MainActor.run {
+                    chatManager.removeMessage(id: assistantMessage.id)
+                }
+                keepGenerating = true
+                continue
+            }
+
+            if let toolOutput {
                 let toolMessage = ChatMessage(role: .tool, content: toolOutput)
                 chatManager.addMessage(toolMessage)
                 keepGenerating = true
@@ -651,6 +679,39 @@ struct ChatView: View {
         return normalized.contains("timeout") ||
             normalized.contains("unresponsive") ||
             normalized.contains("no output")
+    }
+
+    private func requiresToolCall(for userPrompt: String) -> Bool {
+        let text = userPrompt.lowercased()
+        let actions = ["create", "write", "save", "store", "read", "open", "list", "show", "delete", "remove", "append", "update"]
+        let targets = ["file", "files", "folder", "directory", "memory", "memories", "task", "tasks", "note", "notes"]
+
+        let hasAction = actions.contains(where: { text.contains($0) })
+        let hasTarget = targets.contains(where: { text.contains($0) })
+        return hasAction && hasTarget
+    }
+
+    private func containsToolInvocation(in response: String) -> Bool {
+        let lowered = response.lowercased()
+        if lowered.contains("<tool_call>") {
+            return true
+        }
+        return lowered.contains("\"name\"") &&
+            (lowered.contains("create_file") ||
+                lowered.contains("read_file") ||
+                lowered.contains("list_files") ||
+                lowered.contains("create_memory") ||
+                lowered.contains("create_task"))
+    }
+
+    private func hasToolOutputAfterLatestUser(in messages: [ChatMessage]) -> Bool {
+        guard let userIndex = messages.lastIndex(where: { $0.role == .user }) else {
+            return false
+        }
+        guard userIndex + 1 < messages.count else {
+            return false
+        }
+        return messages[(userIndex + 1)...].contains(where: { $0.role == .tool })
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {

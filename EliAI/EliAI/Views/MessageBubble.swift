@@ -971,6 +971,7 @@ private struct MarkdownMathText: UIViewRepresentable {
 
         // Never leave opaque placeholders in rendered output if markdown mutated token boundaries.
         removeAnyResidualInlineMathPlaceholders(from: mutable, tokens: extracted.tokens)
+        applyLooseInlineDollarMathAttachments(to: mutable, coordinator: coordinator)
 
         return mutable
     }
@@ -1440,7 +1441,7 @@ private struct MarkdownMathText: UIViewRepresentable {
                 if range.location == NSNotFound {
                     break
                 }
-                mutable.replaceCharacters(in: range, with: token.latex)
+                mutable.replaceCharacters(in: range, with: "$\(token.latex)$")
             }
         }
     }

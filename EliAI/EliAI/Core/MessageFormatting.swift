@@ -259,23 +259,31 @@ enum MessageFormatting {
         if content.count > Int(AppConstants.LaTeX.maxInlineMathLength) {
             return false
         }
-        if looksLikeCurrencyAmount(content) {
-            return false
-        }
-        if content.contains("\\begin{") || content.contains("\\end{") {
-            // Allow small environments in inline math if wrapped in $
-            if delimiter.open == "$" {
-                return true
-            }
-            return false
-        }
-
         let hasLatexCommand = content.contains("\\")
         let hasOperators = content.range(of: #"[-=+\-*/^_<>]"#, options: .regularExpression) != nil
         let hasBrackets = content.contains("(") || content.contains(")") || content.contains("[") || content.contains("]")
         let hasMathBraces = content.contains("{") || content.contains("}")
         let hasLetters = content.range(of: #"[A-Za-z]"#, options: .regularExpression) != nil
         let hasDigits = content.range(of: #"\d"#, options: .regularExpression) != nil
+        let words = content
+            .split(whereSeparator: { $0.isWhitespace })
+            .filter { !$0.isEmpty }
+
+        if delimiter.open == "$" {
+            // If the model chose $...$, prefer rendering it as math unless it's clearly long prose.
+            let looksLongProse = words.count > 10 && !hasLatexCommand && !hasOperators && !hasMathBraces && !hasBrackets
+            if looksLongProse {
+                return false
+            }
+            return true
+        }
+
+        if looksLikeCurrencyAmount(content) {
+            return false
+        }
+        if content.contains("\\begin{") || content.contains("\\end{") {
+            return false
+        }
 
         if hasLatexCommand || hasOperators || hasBrackets || hasMathBraces {
             return true
@@ -287,10 +295,6 @@ enum MessageFormatting {
         if hasDigits, hasLetters {
             return true
         }
-
-        let words = content
-            .split(whereSeparator: { $0.isWhitespace })
-            .filter { !$0.isEmpty }
 
         // Treat very long prose in $...$ as likely non-math.
         if words.count > 8 {

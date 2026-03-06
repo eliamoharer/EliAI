@@ -145,7 +145,7 @@ class LLMEngine {
                 let template: Template
                 switch profile {
                 case .qwen3, .lfm25, .generic:
-                    template = .chatML("You are EliAI, a helpful assistant with local tools for files, memory, and tasks.")
+                    template = .chatML("You are EliAI, a helpful assistant with local tools for files, memory, and tasks. Never invent filesystem results.")
                 }
                 guard let loadedLLM = LLM(from: modelURL, template: template) else {
                     throw LLMEngineError.modelInitializationFailed
@@ -426,6 +426,8 @@ class LLMEngine {
         - If required arguments are missing (path, content, title), ask only for the missing fields.
         - When calling a tool, your full response must be only the tool call block with no extra text.
         - Use tool names and argument keys exactly as listed.
+        - Never invent file names, file contents, directory listings, or read/write errors.
+        - Only report file/memory/task results that are explicitly present in tool output.
 
         Example:
         User asks: "Create notes/todo.txt with content Buy milk"

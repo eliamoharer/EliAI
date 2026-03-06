@@ -7,6 +7,11 @@ struct SettingsView: View {
     private let responseStyleKey = AppConfiguration.Keys.responseStyle
     private let samplingTemperatureKey = AppConfiguration.Keys.samplingTemperature
     private let samplingTopKKey = AppConfiguration.Keys.samplingTopK
+    @State private var temperatureInput: String = ""
+    @State private var topKInput: String = ""
+    @State private var samplingStatusMessage: String = ""
+    @State private var samplingStatusIsError = false
+    @State private var isApplyingSampling = false
 
     var body: some View {
         Form {
@@ -68,40 +73,26 @@ struct SettingsView: View {
 
                 Section("Sampling") {
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Temperature")
-                            Spacer()
-                            Text(String(format: "%.2f", clampedTemperature))
-                                .foregroundColor(.secondary)
-                        }
-                        Slider(
-                            value: Binding(
-                                get: { clampedTemperature },
-                                set: { UserDefaults.standard.set(clampTemperature($0), forKey: samplingTemperatureKey) }
-                            ),
-                            in: 0.0 ... 1.5,
-                            step: 0.01
-                        )
+                        Text("Temperature")
+                        TextField("0.10", text: $temperatureInput)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.decimalPad)
+                        Text("Range: 0.00 to 1.50")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                         Text("Model default: \(String(format: "%.2f", samplingBase.temperature))")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Top-k")
-                            Spacer()
-                            Text("\(clampedTopK)")
-                                .foregroundColor(.secondary)
-                        }
-                        Slider(
-                            value: Binding(
-                                get: { Double(clampedTopK) },
-                                set: { UserDefaults.standard.set(clampTopK(Int($0.rounded())), forKey: samplingTopKKey) }
-                            ),
-                            in: 1 ... 200,
-                            step: 1
-                        )
+                        Text("Top-k")
+                        TextField("50", text: $topKInput)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.numberPad)
+                        Text("Range: 1 to 200")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
                         Text("Model default: \(samplingBase.topK)")
                             .font(.caption2)
                             .foregroundColor(.secondary)
@@ -111,9 +102,21 @@ struct SettingsView: View {
                         .font(.caption2)
                         .foregroundColor(.secondary)
 
-                    Button("Reset To Model Defaults") {
-                        UserDefaults.standard.set(samplingBase.temperature, forKey: samplingTemperatureKey)
-                        UserDefaults.standard.set(samplingBase.topK, forKey: samplingTopKKey)
+                    Button(isApplyingSampling ? "Saving..." : "Save Values + Reload Model") {
+                        Task { await saveSamplingAndReload() }
+                    }
+                    .disabled(isApplyingSampling)
+
+                    Button("Reset Inputs To Model Defaults") {
+                        temperatureInput = String(format: "%.2f", samplingBase.temperature)
+                        topKInput = "\(samplingBase.topK)"
+                        samplingStatusMessage = ""
+                    }
+
+                    if !samplingStatusMessage.isEmpty {
+                        Text(samplingStatusMessage)
+                            .font(.caption)
+                            .foregroundColor(samplingStatusIsError ? .red : .secondary)
                     }
                 }
 
@@ -177,6 +180,9 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        .onAppear {
+            syncSamplingInputsFromStoredValues()
+        }
     }
 
     private var samplingBase: SamplingPreset {
@@ -199,5 +205,79 @@ struct SettingsView: View {
 
     private func clampTopK(_ value: Int) -> Int {
         min(max(value, 1), 200)
+    }
+
+    private func syncSamplingInputsFromStoredValues() {
+        let defaults = UserDefaults.standard
+        let storedTemperature = (defaults.object(forKey: samplingTemperatureKey) as? NSNumber)?.doubleValue
+        let storedTopK = (defaults.object(forKey: samplingTopKKey) as? NSNumber)?.intValue
+
+        let temperature = clampTemperature(storedTemperature ?? samplingBase.temperature)
+        let topK = clampTopK(storedTopK ?? samplingBase.topK)
+
+        temperatureInput = String(format: "%.2f", temperature)
+        topKInput = "\(topK)"
+    }
+
+    private func parseTemperatureInput() -> Double? {
+        let normalized = temperatureInput
+            .replacingOccurrences(of: ",", with: ".")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        return Double(normalized)
+    }
+
+    private func parseTopKInput() -> Int? {
+        let normalized = topKInput
+            .replacingOccurrences(of: ",", with: ".")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        if let intValue = Int(normalized) {
+            return intValue
+        }
+        if let doubleValue = Double(normalized) {
+            return Int(doubleValue.rounded())
+        }
+        return nil
+    }
+
+    @MainActor
+    private func saveSamplingAndReload() async {
+        guard let parsedTemperature = parseTemperatureInput() else {
+            samplingStatusMessage = "Enter a valid temperature."
+            samplingStatusIsError = true
+            return
+        }
+        guard let parsedTopK = parseTopKInput() else {
+            samplingStatusMessage = "Enter a valid top-k."
+            samplingStatusIsError = true
+            return
+        }
+
+        let temperature = clampTemperature(parsedTemperature)
+        let topK = clampTopK(parsedTopK)
+
+        UserDefaults.standard.set(temperature, forKey: samplingTemperatureKey)
+        UserDefaults.standard.set(topK, forKey: samplingTopKKey)
+        temperatureInput = String(format: "%.2f", temperature)
+        topKInput = "\(topK)"
+
+        guard let engine = llmEngine, engine.isLoaded else {
+            samplingStatusMessage = "Values saved. Load a model to apply them."
+            samplingStatusIsError = false
+            return
+        }
+
+        isApplyingSampling = true
+        defer { isApplyingSampling = false }
+
+        let reloaded = await engine.reloadCurrentModel()
+        if reloaded {
+            samplingStatusMessage = "Values saved and model reloaded."
+            samplingStatusIsError = false
+        } else {
+            samplingStatusMessage = "Values saved, but model reload failed."
+            samplingStatusIsError = true
+        }
     }
 }

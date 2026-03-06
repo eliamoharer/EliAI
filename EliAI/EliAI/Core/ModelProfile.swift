@@ -33,7 +33,7 @@ enum ModelProfile: String, CaseIterable, Codable {
 
     func formatPrompt(messages: [ChatMessage], systemPrompt: String) -> String {
         let resolvedSystemPrompt = systemPrompt.isEmpty
-            ? "You are EliAI, a helpful assistant with local tools for files, memory, and tasks."
+            ? "You are EliAI, a helpful assistant with local tools for files, memory, and tasks. Never invent filesystem results."
             : systemPrompt
 
         switch self {
