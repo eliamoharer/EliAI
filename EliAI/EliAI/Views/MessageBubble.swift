@@ -967,6 +967,7 @@ private struct MarkdownMathText: UIViewRepresentable {
             tokens: extracted.tokens,
             coordinator: coordinator
         )
+        applyLooseInlineDollarMathAttachments(to: mutable, coordinator: coordinator)
 
         // Never leave opaque placeholders in rendered output if markdown mutated token boundaries.
         removeAnyResidualInlineMathPlaceholders(from: mutable, tokens: extracted.tokens)
@@ -1154,6 +1155,141 @@ private struct MarkdownMathText: UIViewRepresentable {
                 AppLogger.debug("Math placeholder '\(token.placeholder)' not found in attributed string. String length: \(mutable.length)", category: .ui)
             }
         }
+    }
+
+    private func applyLooseInlineDollarMathAttachments(
+        to mutable: NSMutableAttributedString,
+        coordinator: Coordinator
+    ) {
+        var searchStart = mutable.string.startIndex
+
+        while searchStart < mutable.string.endIndex {
+            let source = mutable.string
+            guard let openIndex = source[searchStart...].firstIndex(of: "$") else {
+                break
+            }
+            if isEscaped(source, at: openIndex) || source[openIndex...].hasPrefix("$$") {
+                searchStart = source.index(after: openIndex)
+                continue
+            }
+
+            let contentStart = source.index(after: openIndex)
+            guard let closeIndex = nextLooseInlineDollarClose(in: source, from: contentStart) else {
+                searchStart = contentStart
+                continue
+            }
+
+            let rawLatex = String(source[contentStart..<closeIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard looksLikeInlineMathFallback(rawLatex) else {
+                searchStart = source.index(after: openIndex)
+                continue
+            }
+
+            let replaceRange = NSRange(openIndex..<source.index(after: closeIndex), in: source)
+            guard replaceRange.location != NSNotFound else {
+                searchStart = source.index(after: closeIndex)
+                continue
+            }
+
+            let fontAnchor = max(0, replaceRange.location - 1)
+            let fallbackFont = UIFont.preferredFont(forTextStyle: .body)
+            let referenceFont = (mutable.attribute(.font, at: fontAnchor, effectiveRange: nil) as? UIFont) ?? fallbackFont
+            let attachment = inlineMathAttachment(
+                latex: rawLatex,
+                referenceFont: referenceFont,
+                coordinator: coordinator
+            )
+
+            let replacement = NSMutableAttributedString(attachment: attachment)
+            replacement.addAttribute(
+                .inlineLatexSource,
+                value: rawLatex,
+                range: NSRange(location: 0, length: replacement.length)
+            )
+            mutable.replaceCharacters(in: replaceRange, with: replacement)
+
+            let nextLocation = replaceRange.location + replacement.length
+            let updatedSource = mutable.string
+            let utf16 = updatedSource.utf16
+            guard let utf16Index = utf16.index(utf16.startIndex, offsetBy: nextLocation, limitedBy: utf16.endIndex),
+                  let nextIndex = String.Index(utf16Index, within: updatedSource) else {
+                break
+            }
+            searchStart = nextIndex
+        }
+    }
+
+    private func nextLooseInlineDollarClose(in text: String, from start: String.Index) -> String.Index? {
+        var cursor = start
+        while cursor < text.endIndex {
+            let character = text[cursor]
+            if character == "\n" {
+                return nil
+            }
+            if character == "$",
+               !isEscaped(text, at: cursor),
+               !text[cursor...].hasPrefix("$$") {
+                return cursor
+            }
+            cursor = text.index(after: cursor)
+        }
+        return nil
+    }
+
+    private func looksLikeInlineMathFallback(_ latex: String) -> Bool {
+        let content = latex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty else {
+            return false
+        }
+        if content.count > Int(AppConstants.LaTeX.maxInlineMathLength) {
+            return false
+        }
+        if content.range(
+            of: #"^\d{1,3}(,\d{3})*(\.\d{1,2})?$|^\d+(\.\d{1,2})?$"#,
+            options: .regularExpression
+        ) != nil {
+            return false
+        }
+
+        if content.contains("\\") ||
+            content.range(of: #"[-=+\-*/^_<>]"#, options: .regularExpression) != nil ||
+            content.contains("{") || content.contains("}") ||
+            content.contains("(") || content.contains(")") ||
+            content.contains("[") || content.contains("]") {
+            return true
+        }
+
+        let hasLetters = content.range(of: #"[A-Za-z]"#, options: .regularExpression) != nil
+        let hasDigits = content.range(of: #"\d"#, options: .regularExpression) != nil
+        if hasLetters && hasDigits {
+            return true
+        }
+        if hasLetters {
+            let words = content.split(whereSeparator: { $0.isWhitespace })
+            return !words.isEmpty && words.count <= 3 && words.allSatisfy { $0.count <= 5 }
+        }
+        return false
+    }
+
+    private func isEscaped(_ text: String, at index: String.Index) -> Bool {
+        guard index > text.startIndex else {
+            return false
+        }
+
+        var slashCount = 0
+        var cursor = text.index(before: index)
+        while true {
+            if text[cursor] == "\\" {
+                slashCount += 1
+            } else {
+                break
+            }
+            if cursor == text.startIndex {
+                break
+            }
+            cursor = text.index(before: cursor)
+        }
+        return slashCount % 2 == 1
     }
 
     private func inlineMathAttachment(

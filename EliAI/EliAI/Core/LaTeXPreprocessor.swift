@@ -12,8 +12,7 @@ struct LaTeXPreprocessor {
         value = value.replacingOccurrences(of: "\\tfrac", with: "\\frac")
         value = value.replacingOccurrences(of: "\\displaystyle", with: "")
         
-        // Unwrap commands that simply wrap content but aren't supported by basic renderers
-        value = unwrapMathCommand(named: "boxed", in: value)
+        // Keep \\boxed intact so visual boxing renders when supported.
         // value = unwrapMathCommand(named: "text", in: value) // IOSMath supports \text, unwrapping ruins spacing
         value = unwrapMathCommand(named: "mathrm", in: value)
         value = unwrapMathCommand(named: "mathbf", in: value)

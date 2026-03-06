@@ -80,6 +80,23 @@ private final class GenerationResponseTracker: @unchecked Sendable {
     }
 }
 
+private final class StreamTextBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = ""
+
+    func append(_ text: String) {
+        lock.lock()
+        value += text
+        lock.unlock()
+    }
+
+    func snapshot() -> String {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 @Observable
 @MainActor
 class LLMEngine {
@@ -128,7 +145,7 @@ class LLMEngine {
                 let template: Template
                 switch profile {
                 case .qwen3, .lfm25, .generic:
-                    template = .chatML("You are EliAI, a helpful assistant for reasoning, math, and local file-agent tasks.")
+                    template = .chatML("You are EliAI, a helpful assistant with local tools for files, memory, and tasks.")
                 }
                 guard let loadedLLM = LLM(from: modelURL, template: template) else {
                     throw LLMEngineError.modelInitializationFailed
@@ -201,6 +218,7 @@ class LLMEngine {
             let heartbeatInterval = AppConstants.LLMEngine.streamHeartbeatIntervalSeconds
             let progress = GenerationProgressTracker()
             let responseTracker = GenerationResponseTracker()
+            let streamedText = StreamTextBuffer()
 
             llm.history.removeAll(keepingCapacity: true)
             llm.update = { outputDelta in
@@ -211,6 +229,7 @@ class LLMEngine {
                 guard let outputDelta else { return }
                 let cleaned = outputDelta.replacingOccurrences(of: "<|im_end|>", with: "")
                 if !cleaned.isEmpty {
+                    streamedText.append(cleaned)
                     progress.markToken()
                     continuation.yield(cleaned)
                 }
@@ -265,21 +284,17 @@ class LLMEngine {
             }
 
             let responseAny: Any = responseTracker.responseValue() ?? ""
-
-            // Try to extract response if no tokens were emitted via callback
-            if !progress.hasEmittedToken() {
-                if let fullResponse = responseAny as? String {
-                    let cleanedResponse = fullResponse.replacingOccurrences(of: "<|im_end|>", with: "")
-                    if !cleanedResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        continuation.yield(cleanedResponse)
-                        progress.markToken()
-                    }
-                } else if let optionalStringResponse = extractStringResponse(from: responseAny) {
-                    let cleanedResponse = optionalStringResponse.replacingOccurrences(of: "<|im_end|>", with: "")
-                    if !cleanedResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        continuation.yield(cleanedResponse)
-                        progress.markToken()
-                    }
+            if let finalResponse = extractStringResponse(from: responseAny)?
+                .replacingOccurrences(of: "<|im_end|>", with: ""),
+               !finalResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let streamed = streamedText.snapshot()
+                if streamed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    continuation.yield(finalResponse)
+                    progress.markToken()
+                } else if let missingTail = missingStreamTail(from: finalResponse, streamed: streamed),
+                          !missingTail.isEmpty {
+                    continuation.yield(missingTail)
+                    progress.markToken()
                 }
             }
 
@@ -391,12 +406,12 @@ class LLMEngine {
         }()
 
         let base = """
-        You are EliAI, an expert AI assistant and local file-agent. You provide direct, accurate, and highly structured answers across all domains, including complex reasoning, mathematics, coding, and planning.
+        You are EliAI, a local-first assistant with built-in tools for files, memory, and tasks.
 
         Response Guidelines:
-        - Structure responses cleanly using Markdown (headings, lists, tables).
-        - Format all mathematical expressions strictly in LaTeX (use $...$ for inline and $$...$$ for block equations).
-        - If critical information is missing to complete a task, ask exactly one concise clarifying question.
+        - Give direct, useful answers in clear Markdown.
+        - Use LaTeX for equations: inline $...$ and display $$...$$.
+        - If a required field is missing, ask one concise clarification question.
         """
 
         let thinking = useThinkingTags
@@ -405,16 +420,22 @@ class LLMEngine {
 
         let tools = """
         Tool Use Policy & Contract:
-        - You have access to local agent tools. Use them immediately when requested or when local data is required.
+        - For file/memory/task actions, use a tool instead of describing what you would do.
+        - Never reply that you cannot create or read files directly; perform those actions through tools.
         - Execute exactly one tool call per message.
-        - When calling a tool, your entire response MUST consist ONLY of the tool call block. No conversational filler, no markdown fences, and no wrapping text.
+        - If required arguments are missing (path, content, title), ask only for the missing fields.
+        - When calling a tool, your full response must be only the tool call block with no extra text.
+        - Use tool names and argument keys exactly as listed.
 
+        Example:
+        User asks: "Create notes/todo.txt with content Buy milk"
+        Assistant replies:
         <tool_call>
         {
           "name": "create_file",
           "arguments": {
-            "path": "notes/hello.txt",
-            "content": "Hello world"
+            "path": "notes/todo.txt",
+            "content": "Buy milk"
           }
         }
         </tool_call>
@@ -430,6 +451,19 @@ class LLMEngine {
         return [base, thinking, tools]
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: "\n\n")
+    }
+
+    private func missingStreamTail(from final: String, streamed: String) -> String? {
+        guard !final.isEmpty else { return nil }
+        guard !streamed.isEmpty else { return final }
+        if final == streamed {
+            return nil
+        }
+        if final.hasPrefix(streamed) {
+            let start = final.index(final.startIndex, offsetBy: streamed.count)
+            return String(final[start...])
+        }
+        return nil
     }
 
     private func extractStringResponse(from value: Any) -> String? {

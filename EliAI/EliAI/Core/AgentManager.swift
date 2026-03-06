@@ -11,11 +11,13 @@ class AgentManager {
     
     func processToolCalls(in text: String) async -> String? {
         let payloads = extractToolCallPayloads(from: text)
-        guard !payloads.isEmpty else { return nil }
+        let candidates = payloads.isEmpty ? extractLooseToolCallPayloads(from: text) : payloads
+        let uniquePayloads = Array(NSOrderedSet(array: candidates)) as? [String] ?? candidates
+        guard !uniquePayloads.isEmpty else { return nil }
 
         var toolOutputs: [String] = []
 
-        for payload in payloads {
+        for payload in uniquePayloads {
             guard let toolCall = parseToolCall(from: payload) else {
                 AppLogger.warning("Failed to parse tool_call payload.", category: .agent)
                 toolOutputs.append("<tool_result>\nError: Invalid tool_call payload. Use valid JSON with string arguments.\n</tool_result>")
@@ -107,6 +109,24 @@ class AgentManager {
         return matches.compactMap { result in
             guard result.numberOfRanges > 1 else { return nil }
             return nsString.substring(with: result.range(at: 1))
+        }
+    }
+
+    private func extractLooseToolCallPayloads(from text: String) -> [String] {
+        // Fallback for models that emit raw/fenced JSON without <tool_call> wrappers.
+        let pattern = #"(?s)```(?:json)?\s*(\{.*?"name"\s*:\s*"(?:create_file|read_file|list_files|create_memory|create_task)".*?"arguments"\s*:\s*\{.*?\}\s*\})\s*```|\{[^{}]*"name"\s*:\s*"(?:create_file|read_file|list_files|create_memory|create_task)"[^{}]*"arguments"\s*:\s*\{.*?\}\s*\}"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return []
+        }
+
+        let nsText = text as NSString
+        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+        return matches.compactMap { match in
+            if match.numberOfRanges > 1, match.range(at: 1).location != NSNotFound {
+                return nsText.substring(with: match.range(at: 1))
+            }
+            guard match.range.location != NSNotFound else { return nil }
+            return nsText.substring(with: match.range)
         }
     }
 

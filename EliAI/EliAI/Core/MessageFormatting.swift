@@ -122,6 +122,20 @@ enum MessageFormatting {
 
             let rawLatex = String(text[contentStart..<endRange.lowerBound])
             if rawLatex.contains("\n") {
+                if match.delimiter.open == "$" {
+                    let compactLatex = rawLatex
+                        .replacingOccurrences(of: "\n", with: " ")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !compactLatex.isEmpty,
+                       isLikelyInlineMath(compactLatex, delimiter: match.delimiter) {
+                        let placeholder = "ZZZMATHPLACEHOLDER\(counter)ZZZ"
+                        counter += 1
+                        output += placeholder
+                        tokens.append(InlineMathToken(placeholder: placeholder, latex: compactLatex))
+                        cursor = endRange.upperBound
+                        continue
+                    }
+                }
                 output += String(text[match.range.lowerBound..<endRange.upperBound])
                 cursor = endRange.upperBound
                 continue
@@ -278,12 +292,15 @@ enum MessageFormatting {
             .split(whereSeparator: { $0.isWhitespace })
             .filter { !$0.isEmpty }
 
-        // Plain $...$ with longer prose is usually text, not math.
-        if words.count > 3 {
+        // Treat very long prose in $...$ as likely non-math.
+        if words.count > 8 {
             return false
         }
         if words.count == 1 {
             return hasLetters
+        }
+        if hasLetters {
+            return true
         }
         return false
     }

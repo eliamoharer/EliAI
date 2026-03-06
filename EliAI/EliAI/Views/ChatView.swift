@@ -444,12 +444,12 @@ struct ChatView: View {
 
     private var inputBottomInset: CGFloat {
         if isCollapsed {
-            return 12
+            return 16
         }
         if keyboardOverlap > 0 {
-            return keyboardOverlap + 8
+            return keyboardOverlap + 2
         }
-        return 12
+        return 16
     }
 
     private var chatPanelBackground: some View {
@@ -545,6 +545,27 @@ struct ChatView: View {
                 }
             }
 
+            if !fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let error = llmEngine.generationError,
+               shouldAttemptModelRecovery(for: error),
+               recoveryAttempts < AppConstants.LLMEngine.maxRecoveryAttempts {
+                recoveryAttempts += 1
+                AppLogger.warning(
+                    "Partial generation ended with recoverable error. Reloading model (attempt \(recoveryAttempts)/\(AppConstants.LLMEngine.maxRecoveryAttempts))...",
+                    category: .inference
+                )
+
+                let recovered = await llmEngine.reloadCurrentModel()
+                if recovered {
+                    await MainActor.run {
+                        llmEngine.generationError = nil
+                        chatManager.removeMessage(id: assistantMessage.id)
+                    }
+                    keepGenerating = true
+                    continue
+                }
+            }
+
             if fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if llmEngine.lastGenerationWasCancelled {
                     await MainActor.run {
@@ -594,8 +615,13 @@ struct ChatView: View {
             } else {
                 // Success - reset recovery attempts
                 recoveryAttempts = 0
+                var finalResponse = fullResponse
+                if let error = llmEngine.generationError,
+                   shouldAttemptModelRecovery(for: error) {
+                    finalResponse += "\n\n[Response may be incomplete: \(error)]"
+                }
                 await MainActor.run {
-                    assistantMessage.content = fullResponse
+                    assistantMessage.content = finalResponse
                     chatManager.updateLastMessage(assistantMessage)
                 }
             }
@@ -681,9 +707,7 @@ struct ChatView: View {
 
         let localFrame = keyWindow.convert(keyboardFrame, from: nil)
         let overlap = keyWindow.bounds.maxY - localFrame.minY
-        // ChatView is hosted in a panel that extends into bottom safe area.
-        // Add safe-area inset so the composer tracks the keyboard top correctly.
-        return max(0, overlap + keyWindow.safeAreaInsets.bottom)
+        return max(0, overlap)
     }
 
     private func animation(for curve: UIView.AnimationCurve, duration: Double) -> Animation {
