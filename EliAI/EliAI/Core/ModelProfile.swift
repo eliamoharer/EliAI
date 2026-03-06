@@ -22,17 +22,17 @@ enum ModelProfile: String, CaseIterable, Codable {
     var sampling: SamplingPreset {
         switch self {
         case .qwen3:
-            return SamplingPreset(temperature: 0.7, topP: 0.8, repeatPenalty: 1.1)
+            return SamplingPreset(temperature: 0.7, topP: 0.9, repeatPenalty: 1.08)
         case .lfm25:
-            return SamplingPreset(temperature: 0.1, topP: 0.1, repeatPenalty: 1.05)
+            return SamplingPreset(temperature: 0.5, topP: 0.9, repeatPenalty: 1.05)
         case .generic:
-            return SamplingPreset(temperature: 0.6, topP: 0.85, repeatPenalty: 1.1)
+            return SamplingPreset(temperature: 0.6, topP: 0.9, repeatPenalty: 1.1)
         }
     }
 
     func formatPrompt(messages: [ChatMessage], systemPrompt: String) -> String {
         let resolvedSystemPrompt = systemPrompt.isEmpty
-            ? "You are EliAI, an intelligent and helpful assistant that can manage files, tasks, and memories."
+            ? "You are EliAI, a helpful assistant that can reason, solve math, and use local tools for files, memory, and tasks."
             : systemPrompt
 
         switch self {
@@ -50,7 +50,9 @@ enum ModelProfile: String, CaseIterable, Codable {
         }
 
         for message in messages {
-            prompt += "<|im_start|>\(message.role.rawValue)\n\(message.content)<|im_end|>\n"
+            let role = promptRole(for: message)
+            let content = promptContent(for: message)
+            prompt += "<|im_start|>\(role)\n\(content)<|im_end|>\n"
         }
 
         prompt += "<|im_start|>assistant\n"
@@ -64,11 +66,41 @@ enum ModelProfile: String, CaseIterable, Codable {
         }
         
         for message in messages {
-            let role = message.role == .assistant ? "Assistant" : "User"
-            prompt += "\(role): \(message.content)\n"
+            let role = genericRoleLabel(for: message)
+            let content = promptContent(for: message)
+            prompt += "\(role): \(content)\n"
         }
         prompt += "Assistant: "
         return prompt
+    }
+
+    private func promptRole(for message: ChatMessage) -> String {
+        switch message.role {
+        case .assistant:
+            return "assistant"
+        case .system:
+            return "system"
+        case .user, .tool:
+            return "user"
+        }
+    }
+
+    private func genericRoleLabel(for message: ChatMessage) -> String {
+        switch message.role {
+        case .assistant:
+            return "Assistant"
+        case .system:
+            return "System"
+        case .user, .tool:
+            return "User"
+        }
+    }
+
+    private func promptContent(for message: ChatMessage) -> String {
+        if message.role == .tool {
+            return "Tool result:\n\(message.content)"
+        }
+        return message.content
     }
 
     static func fromHints(fileName: String, metadataHints: Set<String>) -> ModelProfile {

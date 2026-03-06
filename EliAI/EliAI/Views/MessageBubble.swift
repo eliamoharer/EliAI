@@ -1155,33 +1155,7 @@ private struct MarkdownMathText: UIViewRepresentable {
         if let cached = coordinator.imageCache[cacheKey] {
             image = cached
         } else {
-            let rendered = renderInlineMathImage(latex: latex, color: color, fontSize: mathFontSize)
-            if rendered.size.width <= AppConstants.LaTeX.fallbackImageMinSize || 
-               rendered.size.height <= AppConstants.LaTeX.fallbackImageMinSize {
-                // Try preprocessing the LaTeX more aggressively before falling back
-                let preprocessed = LaTeXPreprocessor.preprocess(latex)
-                if preprocessed != latex {
-                    let retryRendered = renderInlineMathImage(latex: preprocessed, color: color, fontSize: mathFontSize)
-                    if retryRendered.size.width > AppConstants.LaTeX.fallbackImageMinSize && 
-                       retryRendered.size.height > AppConstants.LaTeX.fallbackImageMinSize {
-                        image = retryRendered
-                    } else {
-                        image = renderFallbackInlineTextImage(
-                            latex: latex,
-                            color: color,
-                            fontSize: max(16, referenceFont.pointSize + 1)
-                        )
-                    }
-                } else {
-                    image = renderFallbackInlineTextImage(
-                        latex: latex,
-                        color: color,
-                        fontSize: max(16, referenceFont.pointSize + 1)
-                    )
-                }
-            } else {
-                image = rendered
-            }
+            image = renderInlineMathImage(latex: latex, color: color, fontSize: mathFontSize)
             coordinator.imageCache[cacheKey] = image
         }
 
