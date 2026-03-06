@@ -146,7 +146,8 @@ struct MessageBubble: View {
                     }
                 }
 
-                if !cachedVisibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || message.role != .assistant {
+                if !cachedVisibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    (message.role != .assistant && message.role != .tool) {
                     messageContent(segments: cachedSegments)
                         .frame(
                             minWidth: message.role == .user ? UIScreen.main.bounds.width * 0.48 : nil,
@@ -171,7 +172,9 @@ struct MessageBubble: View {
 
     private func loadContent() {
         let parsed = parseThinkingAndTools(from: message.content)
-        let visible = message.role == .assistant ? parsed.visible : message.content
+        let visible = (message.role == .assistant || message.role == .tool)
+            ? parsed.visible
+            : message.content
         
         if visible != cachedVisibleText || parsed.thinking != cachedThinking || parsed.tools != cachedToolCalls || parsed.toolOutputs != cachedToolOutputs {
             self.cachedVisibleText = visible
@@ -383,8 +386,9 @@ struct MessageBubble: View {
             }
             scanner = String(scanner[endRange.upperBound...])
         } else {
-            // Unclosed, just hide header
-            scanner = String(scanner[contentStart...])
+            // Keep incomplete blocks visible until closing tag arrives.
+            visible += String(scanner[start.lowerBound...])
+            scanner = ""
         }
     }
 
@@ -425,8 +429,9 @@ struct MessageBubble: View {
             } 
             scanner = String(scanner[endRange.upperBound...])
         } else {
-             // Unclosed, just hide header
-             scanner = String(scanner[contentStart...])
+             // Keep incomplete blocks visible until closing tag arrives.
+             visible += String(scanner[start.lowerBound...])
+             scanner = ""
         }
     }
     

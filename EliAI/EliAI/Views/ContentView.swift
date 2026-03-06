@@ -45,7 +45,7 @@ struct ContentView: View {
             .ignoresSafeArea()
 
             GeometryReader { geometry in
-                let fullHeight = geometry.size.height + geometry.safeAreaInsets.bottom
+                let fullHeight = geometry.size.height
                 let expandedTopOffset: CGFloat = 0
                 let peekVisibleHeight: CGFloat = 120
                 let collapsedOffsetBase = max(0, fullHeight - peekVisibleHeight)
@@ -127,7 +127,8 @@ struct ContentView: View {
         .onAppear {
             UserDefaults.standard.register(defaults: [
                 AppConfiguration.Keys.responseStyle: "auto",
-                AppConfiguration.Keys.samplingPreset: SamplingControlPreset.modelDefault.rawValue,
+                AppConfiguration.Keys.samplingTemperature: ModelProfile.lfm25.sampling.temperature,
+                AppConfiguration.Keys.samplingTopK: ModelProfile.lfm25.sampling.topK,
                 AppConfiguration.Keys.selectedRemoteModelID: AppConfiguration.defaultModelID,
                 AppConfiguration.Keys.activeModelName: AppConfiguration.defaultModelFileName
             ])

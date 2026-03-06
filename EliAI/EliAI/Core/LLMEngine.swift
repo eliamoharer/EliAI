@@ -99,7 +99,8 @@ class LLMEngine {
     private let maxPromptCharacters = AppConstants.LLMEngine.maxPromptCharacters
     private let maxHistoryMessages = AppConstants.LLMEngine.maxHistoryMessages
     private let responseStyleDefaultsKey = AppConfiguration.Keys.responseStyle
-    private let samplingPresetDefaultsKey = AppConfiguration.Keys.samplingPreset
+    private let samplingTemperatureDefaultsKey = AppConfiguration.Keys.samplingTemperature
+    private let samplingTopKDefaultsKey = AppConfiguration.Keys.samplingTopK
 
     func preflightModel(at url: URL) throws -> ModelValidationReport {
         try ModelValidator.validateModel(at: url)
@@ -329,18 +330,24 @@ class LLMEngine {
     }
 
     private func applySamplingPreset(_ preset: SamplingPreset, to llm: LLM) {
-        let resolved = resolvedSamplingPreset(from: preset)
+        let resolved = resolvedSampling(from: preset)
         llm.topK = Int32(max(1, resolved.topK))
         llm.topP = Float(resolved.topP)
         llm.temp = Float(max(0.0, resolved.temperature))
         llm.repeatPenalty = Float(resolved.repeatPenalty)
     }
 
-    private func resolvedSamplingPreset(from base: SamplingPreset) -> SamplingPreset {
-        let stored = UserDefaults.standard.string(forKey: samplingPresetDefaultsKey)
-            ?? SamplingControlPreset.modelDefault.rawValue
-        let preset = SamplingControlPreset(rawValue: stored) ?? .modelDefault
-        return preset.apply(to: base)
+    private func resolvedSampling(from base: SamplingPreset) -> SamplingPreset {
+        let defaults = UserDefaults.standard
+        let temperature = (defaults.object(forKey: samplingTemperatureDefaultsKey) as? NSNumber)?.doubleValue ?? base.temperature
+        let topKValue = (defaults.object(forKey: samplingTopKDefaultsKey) as? NSNumber)?.intValue ?? base.topK
+
+        return SamplingPreset(
+            temperature: min(max(temperature, 0.0), 1.5),
+            topK: min(max(topKValue, 1), 200),
+            topP: base.topP,
+            repeatPenalty: base.repeatPenalty
+        )
     }
 
     private func trimmedHistory(_ messages: [ChatMessage]) -> [ChatMessage] {
@@ -374,12 +381,8 @@ class LLMEngine {
             case "auto":
                 if let modelPath {
                     let lower = modelPath.lowercased()
-                    if lower.contains("thinking") {
-                        return true
-                    }
-                    if lower.contains("instruct") {
-                        return false
-                    }
+                    if lower.contains("thinking") { return true }
+                    if lower.contains("instruct") { return false }
                 }
                 return activeProfile == .qwen3
             default:
@@ -388,36 +391,24 @@ class LLMEngine {
         }()
 
         let base = """
-        You are EliAI, a general AI assistant with local agent tools.
+        You are EliAI, an expert AI assistant and local file-agent. You provide direct, accurate, and highly structured answers across all domains, including complex reasoning, mathematics, coding, and planning.
 
-        Core responsibilities:
-        - Help with any topic using clear, accurate, direct answers.
-        - Perform reasoning and calculations directly in the response.
-        - Use markdown structure when useful (headings, bullet lists, numbered lists, and tables).
-        - For math notation, use LaTeX syntax:
-          - inline math: $...$
-          - block math: $$...$$
-          - when showing tabular math content, prefer markdown tables with LaTeX inside cells.
-        - Ask concise clarifying questions when user intent or required parameters are missing.
+        Response Guidelines:
+        - Structure responses cleanly using Markdown (headings, lists, tables).
+        - Format all mathematical expressions strictly in LaTeX (use $...$ for inline and $$...$$ for block equations).
+        - If critical information is missing to complete a task, ask exactly one concise clarifying question.
         """
 
         let thinking = useThinkingTags
-            ? "If you include internal reasoning, place it inside <think>...</think> and keep the final user-facing answer outside those tags."
+            ? "When reasoning is required, wrap your internal thought process strictly inside <think>...</think> tags. Keep the final user-facing answer outside these tags."
             : ""
 
         let tools = """
-        Tool-use policy:
-        - Use tools when the user requests supported operations: create_file, read_file, list_files, create_memory, or create_task.
-        - For explicit requests in those supported operations, call a tool instead of describing what would happen.
-        - Do not use tools for requests that can be fully answered directly.
-        - Never claim a file/task/memory action is complete unless a tool result confirms success.
-        - Do not fabricate tool outputs.
-        - If a required tool argument is missing (for example path, title, or content), ask for it before calling a tool.
+        Tool Use Policy & Contract:
+        - You have access to local agent tools. Use them immediately when requested or when local data is required.
+        - Execute exactly one tool call per message.
+        - When calling a tool, your entire response MUST consist ONLY of the tool call block. No conversational filler, no markdown fences, and no wrapping text.
 
-        Tool call contract:
-        - Output exactly one tool call per message.
-        - The assistant message must contain only the tool call block when calling a tool.
-        - No markdown fences and no additional text around tool calls.
         <tool_call>
         {
           "name": "create_file",
@@ -428,7 +419,7 @@ class LLMEngine {
         }
         </tool_call>
 
-        Available tools:
+        Available Tools:
         - create_file(path: String, content: String)
         - read_file(path: String)
         - list_files(directory: String)

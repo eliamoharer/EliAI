@@ -7,69 +7,6 @@ struct SamplingPreset: Equatable {
     let repeatPenalty: Double
 }
 
-enum SamplingControlPreset: String, CaseIterable, Codable, Identifiable {
-    case modelDefault
-    case focused
-    case balanced
-    case creative
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .modelDefault:
-            return "Model Default"
-        case .focused:
-            return "Focused"
-        case .balanced:
-            return "Balanced"
-        case .creative:
-            return "Creative"
-        }
-    }
-
-    var details: String {
-        switch self {
-        case .modelDefault:
-            return "Uses each model's recommended sampling values."
-        case .focused:
-            return "Temperature 0.1, top-k 40."
-        case .balanced:
-            return "Temperature 0.4, top-k 60."
-        case .creative:
-            return "Temperature 0.8, top-k 100."
-        }
-    }
-
-    func apply(to base: SamplingPreset) -> SamplingPreset {
-        switch self {
-        case .modelDefault:
-            return base
-        case .focused:
-            return SamplingPreset(
-                temperature: 0.1,
-                topK: 40,
-                topP: base.topP,
-                repeatPenalty: base.repeatPenalty
-            )
-        case .balanced:
-            return SamplingPreset(
-                temperature: 0.4,
-                topK: 60,
-                topP: base.topP,
-                repeatPenalty: base.repeatPenalty
-            )
-        case .creative:
-            return SamplingPreset(
-                temperature: 0.8,
-                topK: 100,
-                topP: base.topP,
-                repeatPenalty: base.repeatPenalty
-            )
-        }
-    }
-}
-
 enum ModelProfile: String, CaseIterable, Codable {
     case qwen3
     case lfm25
