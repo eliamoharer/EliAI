@@ -36,7 +36,9 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
     }
 
     var selectedRemoteModel: RemoteModel {
-        remoteCatalog.first(where: { $0.id == selectedRemoteModelID }) ?? remoteCatalog[0]
+        remoteCatalog.first(where: { $0.id == selectedRemoteModelID }) ??
+            remoteCatalog.first(where: { $0.id == AppConfiguration.defaultModelID }) ??
+            remoteCatalog[0]
     }
 
     var activeModelName: String {
@@ -49,9 +51,13 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
 
     private var session: URLSession?
     private var downloadTask: URLSessionDownloadTask?
+    private let legacyDefaultModelMigrationKey = "didMigrateDefaultModelToLFMDefault"
+    private let legacyDefaultModelID = "qwen3-1.7b-q4km"
+    private let legacyDefaultModelFileName = "Qwen3-1.7B-Q4_K_M.gguf"
 
     override init() {
         super.init()
+        applyDefaultModelMigrationIfNeeded()
         checkLocalModel()
         refreshAvailableModels()
     }
@@ -202,6 +208,25 @@ class ModelDownloader: NSObject, URLSessionDownloadDelegate {
             }
         }
         return nil
+    }
+
+    private func applyDefaultModelMigrationIfNeeded() {
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: legacyDefaultModelMigrationKey) {
+            return
+        }
+
+        let currentSelectedID = defaults.string(forKey: AppConfiguration.Keys.selectedRemoteModelID)
+        if currentSelectedID == nil || currentSelectedID == legacyDefaultModelID {
+            defaults.set(AppConfiguration.defaultModelID, forKey: AppConfiguration.Keys.selectedRemoteModelID)
+        }
+
+        let currentActiveName = defaults.string(forKey: AppConfiguration.Keys.activeModelName)
+        if currentActiveName == nil || currentActiveName == legacyDefaultModelFileName {
+            defaults.set(AppConfiguration.defaultModelFileName, forKey: AppConfiguration.Keys.activeModelName)
+        }
+
+        defaults.set(true, forKey: legacyDefaultModelMigrationKey)
     }
 
     private func beginDownload(url: URL) {

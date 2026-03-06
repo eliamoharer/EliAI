@@ -10,36 +10,23 @@ class AgentManager {
     }
     
     func processToolCalls(in text: String) async -> String? {
-        // Robust regex parser for <tool_call>...</tool_call>
-        // Use s (dotMatchesLineSeparators) option in pattern string if supported, or via options
-        // We use (?s) to enable dotAll mode inline
-        let pattern = "(?s)<tool_call>(.*?)</tool_call>"
-        
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
-        let nsString = text as NSString
-        let results = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
-        
+        let payloads = extractToolCallPayloads(from: text)
+        guard !payloads.isEmpty else { return nil }
+
         var toolOutputs: [String] = []
 
-        for result in results {
-            if result.numberOfRanges > 1 {
-                let range = result.range(at: 1)
-                let jsonString = nsString.substring(with: range)
-                
-                // Clean up potential markdown formatting (```json ... ```)
-                let cleanJson = jsonString.replacingOccurrences(of: "```json", with: "")
-                                          .replacingOccurrences(of: "```", with: "")
-                                          .trimmingCharacters(in: .whitespacesAndNewlines)
-                
-                if let data = cleanJson.data(using: .utf8),
-                   let toolCall = try? JSONDecoder().decode(ToolCall.self, from: data) {
-                    AppLogger.info("Tool call parsed: \(toolCall.name)", category: .agent)
-                    let output = await execute(toolCall)
-                    toolOutputs.append("<tool_result>\n\(output)\n</tool_result>")
-                }
+        for payload in payloads {
+            guard let toolCall = parseToolCall(from: payload) else {
+                AppLogger.warning("Failed to parse tool_call payload.", category: .agent)
+                toolOutputs.append("<tool_result>\nError: Invalid tool_call payload. Use valid JSON with string arguments.\n</tool_result>")
+                continue
             }
+
+            AppLogger.info("Tool call parsed: \(toolCall.name)", category: .agent)
+            let output = await execute(toolCall)
+            toolOutputs.append("<tool_result>\n\(output)\n</tool_result>")
         }
-        
+
         return toolOutputs.isEmpty ? nil : toolOutputs.joined(separator: "\n\n")
     }
     
@@ -47,13 +34,18 @@ class AgentManager {
         do {
             switch toolCall.name {
             case "create_file":
-                guard let path = toolCall.arguments["path"], let content = toolCall.arguments["content"] else { return "Error: Missing arguments" }
+                guard let path = requiredArgument("path", in: toolCall.arguments),
+                      let content = requiredArgument("content", in: toolCall.arguments) else {
+                    return "Error: Missing arguments"
+                }
                 try fileSystem.createFile(path: path, content: content)
                 AppLogger.info("Tool executed: create_file path=\(path)", category: .agent)
                 return "File created at \(path)"
 
             case "read_file":
-                guard let path = toolCall.arguments["path"] else { return "Error: Missing arguments" }
+                guard let path = requiredArgument("path", in: toolCall.arguments) else {
+                    return "Error: Missing arguments"
+                }
                 let content = try fileSystem.readFile(path: path)
                 AppLogger.info("Tool executed: read_file path=\(path)", category: .agent)
                 return content
@@ -65,7 +57,8 @@ class AgentManager {
                 return files.joined(separator: "\n")
 
             case "create_memory":
-                guard let title = toolCall.arguments["title"], let content = toolCall.arguments["content"] else {
+                guard let title = requiredArgument("title", in: toolCall.arguments),
+                      let content = requiredArgument("content", in: toolCall.arguments) else {
                     return "Error: Missing arguments"
                 }
                 let slug = safeSlug(from: title)
@@ -75,7 +68,7 @@ class AgentManager {
                 return "Memory created: \(path)"
 
             case "create_task":
-                guard let title = toolCall.arguments["title"] else {
+                guard let title = requiredArgument("title", in: toolCall.arguments) else {
                     return "Error: Missing arguments"
                 }
                 let due = toolCall.arguments["due"] ?? "unscheduled"
@@ -101,6 +94,176 @@ class AgentManager {
             AppLogger.error("Tool execution failed for \(toolCall.name): \(error.localizedDescription)", category: .agent)
             return "Error: \(error.localizedDescription)"
         }
+    }
+
+    private func extractToolCallPayloads(from text: String) -> [String] {
+        let pattern = "(?s)<tool_call>(.*?)</tool_call>"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return []
+        }
+
+        let nsString = text as NSString
+        let matches = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+        return matches.compactMap { result in
+            guard result.numberOfRanges > 1 else { return nil }
+            return nsString.substring(with: result.range(at: 1))
+        }
+    }
+
+    private func parseToolCall(from rawPayload: String) -> ToolCall? {
+        let cleaned = stripCodeFences(rawPayload).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+
+        for candidate in jsonCandidates(from: cleaned) {
+            guard let data = candidate.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let name = json["name"] as? String else {
+                continue
+            }
+
+            let argumentsAny = json["arguments"] as? [String: Any] ?? [:]
+            var arguments: [String: String] = [:]
+            for (key, value) in argumentsAny {
+                arguments[key] = stringifyJSONValue(value)
+            }
+
+            let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedName.isEmpty {
+                continue
+            }
+            return ToolCall(name: normalizedName, arguments: arguments)
+        }
+
+        return nil
+    }
+
+    private func jsonCandidates(from value: String) -> [String] {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sanitizedBackslashes = sanitizeJSONString(trimmed)
+        let withoutTrailingCommas = sanitizedBackslashes.replacingOccurrences(
+            of: #",\s*([}\]])"#,
+            with: "$1",
+            options: .regularExpression
+        )
+
+        var candidates: [String] = []
+        for candidate in [trimmed, sanitizedBackslashes, withoutTrailingCommas] {
+            let normalized = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty && !candidates.contains(normalized) {
+                candidates.append(normalized)
+            }
+        }
+        return candidates
+    }
+
+    private func stripCodeFences(_ text: String) -> String {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        value = value.replacingOccurrences(
+            of: #"^```(?:json)?\s*"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        value = value.replacingOccurrences(
+            of: #"\s*```$"#,
+            with: "",
+            options: .regularExpression
+        )
+        return value
+    }
+
+    private func stringifyJSONValue(_ value: Any) -> String {
+        if let string = value as? String {
+            return string
+        }
+        if value is NSNull {
+            return ""
+        }
+        if let number = value as? NSNumber {
+            let typeCode = String(cString: number.objCType)
+            if typeCode == "c" {
+                return number.boolValue ? "true" : "false"
+            }
+            return number.stringValue
+        }
+        if let dictionary = value as? [String: Any],
+           let data = try? JSONSerialization.data(withJSONObject: dictionary, options: []),
+           let string = String(data: data, encoding: .utf8) {
+            return string
+        }
+        if let array = value as? [Any],
+           let data = try? JSONSerialization.data(withJSONObject: array, options: []),
+           let string = String(data: data, encoding: .utf8) {
+            return string
+        }
+        return String(describing: value)
+    }
+
+    private func sanitizeJSONString(_ jsonString: String) -> String {
+        if (try? JSONSerialization.jsonObject(with: Data(jsonString.utf8))) != nil {
+            return jsonString
+        }
+
+        var result = ""
+        var inString = false
+        var escapeNext = false
+        var index = jsonString.startIndex
+
+        while index < jsonString.endIndex {
+            let char = jsonString[index]
+
+            if escapeNext {
+                if inString {
+                    let validEscapes = "\"\\/bfnrtu"
+                    if validEscapes.contains(char) {
+                        result.append("\\")
+                        result.append(char)
+                    } else {
+                        result.append("\\\\")
+                        result.append(char)
+                    }
+                } else {
+                    result.append("\\")
+                    result.append(char)
+                }
+                escapeNext = false
+            } else if char == "\\" {
+                if inString {
+                    let nextIndex = jsonString.index(after: index)
+                    if nextIndex < jsonString.endIndex {
+                        let nextChar = jsonString[nextIndex]
+                        let validEscapes = "\"\\/bfnrtu"
+                        if validEscapes.contains(nextChar) {
+                            result.append(char)
+                            escapeNext = true
+                        } else {
+                            result.append("\\\\")
+                        }
+                    } else {
+                        result.append("\\\\")
+                    }
+                } else {
+                    result.append(char)
+                    escapeNext = true
+                }
+            } else {
+                if char == "\"" {
+                    inString.toggle()
+                }
+                result.append(char)
+            }
+
+            index = jsonString.index(after: index)
+        }
+
+        return result
+    }
+
+    private func requiredArgument(_ name: String, in arguments: [String: String]) -> String? {
+        guard let value = arguments[name]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private func safeSlug(from input: String) -> String {

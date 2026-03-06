@@ -11,11 +11,11 @@ struct AppConfiguration {
 
     static let remoteModels: [RemoteModelConfig] = [
         RemoteModelConfig(
-            id: "qwen3-1.7b-q4km",
-            displayName: "Qwen 3 1.7B (Q4_K_M)",
-            fileName: "Qwen3-1.7B-Q4_K_M.gguf",
-            urlString: "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
-            profile: .qwen3
+            id: "lfm2.5-1.2b-instruct-q4km",
+            displayName: "LFM 2.5 1.2B Instruct (Q4_K_M)",
+            fileName: "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
+            urlString: "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
+            profile: .lfm25
         ),
         RemoteModelConfig(
             id: "lfm2.5-1.2b-thinking-q4km",
@@ -25,18 +25,25 @@ struct AppConfiguration {
             profile: .lfm25
         ),
         RemoteModelConfig(
-            id: "lfm2.5-1.2b-instruct-q4km",
-            displayName: "LFM 2.5 1.2B Instruct (Q4_K_M)",
-            fileName: "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
-            urlString: "https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/resolve/main/LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
-            profile: .lfm25
+            id: "qwen3-1.7b-q4km",
+            displayName: "Qwen 3 1.7B (Q4_K_M)",
+            fileName: "Qwen3-1.7B-Q4_K_M.gguf",
+            urlString: "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
+            profile: .qwen3
         )
     ]
     
-    static let defaultModelID = "qwen3-1.7b-q4km"
+    static let defaultModelID = "lfm2.5-1.2b-instruct-q4km"
+
+    static var defaultModelFileName: String {
+        remoteModels.first(where: { $0.id == defaultModelID })?.fileName
+            ?? remoteModels.first?.fileName
+            ?? "LFM2.5-1.2B-Instruct-Q4_K_M.gguf"
+    }
     
     struct Keys {
         static let responseStyle = "responseStyle"
+        static let samplingPreset = "samplingPreset"
         static let selectedRemoteModelID = "selectedRemoteModelID"
         static let activeModelName = "activeModelName"
     }

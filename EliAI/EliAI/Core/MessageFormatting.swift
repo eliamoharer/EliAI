@@ -20,7 +20,6 @@ enum MessageFormatting {
         return text
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
-            .replacingOccurrences(of: "\\n", with: "\n")
             .replacingOccurrences(of: "<br />", with: "\n")
             .replacingOccurrences(of: "<br/>", with: "\n")
             .replacingOccurrences(of: "<br>", with: "\n")
@@ -28,6 +27,9 @@ enum MessageFormatting {
 
     static func normalizeMarkdown(_ text: String) -> String {
         var value = normalizeNewlines(text)
+
+        // Handle literal escaped newlines after math placeholders are extracted.
+        value = value.replacingOccurrences(of: "\\n", with: "\n")
 
         // Move inline headings onto their own line when models emit "... ### Header".
         value = value.replacingOccurrences(
@@ -240,7 +242,7 @@ enum MessageFormatting {
         guard !content.isEmpty else {
             return false
         }
-        if content.count > 120 {
+        if content.count > Int(AppConstants.LaTeX.maxInlineMathLength) {
             return false
         }
         if looksLikeCurrencyAmount(content) {

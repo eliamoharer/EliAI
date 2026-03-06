@@ -118,14 +118,19 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingSettings) {
                 NavigationView {
-                    SettingsView(modelDownloader: modelDownloader)
+                    SettingsView(modelDownloader: modelDownloader, llmEngine: llmEngine)
                         .navigationBarItems(trailing: Button("Done") { showingSettings = false })
                 }
             }
             .padding(.bottom, 0)
         }
         .onAppear {
-            UserDefaults.standard.register(defaults: ["responseStyle": "auto"])
+            UserDefaults.standard.register(defaults: [
+                AppConfiguration.Keys.responseStyle: "auto",
+                AppConfiguration.Keys.samplingPreset: SamplingControlPreset.modelDefault.rawValue,
+                AppConfiguration.Keys.selectedRemoteModelID: AppConfiguration.defaultModelID,
+                AppConfiguration.Keys.activeModelName: AppConfiguration.defaultModelFileName
+            ])
             if chatManager.currentSession == nil {
                 chatManager.createNewSession()
             }

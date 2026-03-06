@@ -1,8 +1,11 @@
+import Foundation
 import SwiftUI
 
 struct SettingsView: View {
     var modelDownloader: ModelDownloader?
+    var llmEngine: LLMEngine?
     private let responseStyleKey = AppConfiguration.Keys.responseStyle
+    private let samplingPresetKey = AppConfiguration.Keys.samplingPreset
 
     var body: some View {
         Form {
@@ -62,6 +65,31 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Generation Preset") {
+                    Picker(
+                        "Sampling",
+                        selection: Binding(
+                            get: {
+                                UserDefaults.standard.string(forKey: samplingPresetKey)
+                                    ?? SamplingControlPreset.modelDefault.rawValue
+                            },
+                            set: { UserDefaults.standard.set($0, forKey: samplingPresetKey) }
+                        )
+                    ) {
+                        ForEach(SamplingControlPreset.allCases) { preset in
+                            Text(preset.displayName).tag(preset.rawValue)
+                        }
+                    }
+
+                    Text(selectedSamplingPreset.details)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Text(currentSamplingSummary)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
                 Section("Download") {
                     Button("Download Selected Model") {
                         downloader.downloadModel()
@@ -118,9 +146,24 @@ struct SettingsView: View {
                     Text("Feb 2026")
                         .foregroundColor(.secondary)
                 }
-                Text("On-device GGUF inference for Qwen 3 and LFM 2.5 profiles.")
+                Text("On-device GGUF inference for LFM 2.5 and Qwen 3 profiles.")
             }
         }
         .navigationTitle("Settings")
+    }
+
+    private var selectedSamplingPreset: SamplingControlPreset {
+        SamplingControlPreset(
+            rawValue: UserDefaults.standard.string(forKey: samplingPresetKey)
+                ?? SamplingControlPreset.modelDefault.rawValue
+        ) ?? .modelDefault
+    }
+
+    private var currentSamplingSummary: String {
+        let base = llmEngine?.activeProfile.sampling ?? ModelProfile.lfm25.sampling
+        let effective = selectedSamplingPreset.apply(to: base)
+        let temperature = String(format: "%.2f", effective.temperature)
+        let repeatPenalty = String(format: "%.2f", effective.repeatPenalty)
+        return "Temperature \(temperature), top-k \(effective.topK), repeat penalty \(repeatPenalty)."
     }
 }
