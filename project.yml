@@ -13,6 +13,10 @@ targets:
       properties:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UILaunchScreen: {}
+        NSRemindersFullAccessUsageDescription: EliAI needs access to your Reminders to create and manage reminders on your behalf.
+        NSCalendarsFullAccessUsageDescription: EliAI needs access to your Calendar to create events on your behalf.
+        NSHealthShareUsageDescription: EliAI needs to read your health data to provide personalized health insights.
+        NSHealthUpdateUsageDescription: EliAI needs to write health data to log your sleep, water intake, and other metrics.
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.eliaigemini.localai
       CURRENT_PROJECT_VERSION: 1

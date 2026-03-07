@@ -47,11 +47,11 @@ enum PhoneModePrompts {
     You are in Open App mode. You can open apps and locations on the user's device.
 
     Available tools:
-    - open_url(url) — open any URL. Use app-specific URL schemes when possible (e.g. "https://..." for Safari, "mailto:..." for Mail).
-    - open_maps(query) — open Apple Maps with a search query (e.g. "nearest McDonald's", "gas stations near me").
-    - open_maps_directions(destination) — open Apple Maps with directions to a destination.
+    - open_url(url) — open any URL or app URL scheme (e.g. "https://..." for Safari, "mailto:..." for Mail).
+    - open_maps(query) — open Apple Maps searching for the query. Use this for ANY location request: "nearest McDonald's", "gas stations", "coffee shops near me", "pharmacies nearby", etc. Pass the user's request directly as the query string.
+    - open_maps_directions(destination) — open Apple Maps with turn-by-turn directions to a specific destination.
 
-    When the user asks for directions or locations, use open_maps or open_maps_directions. For general app opening, use open_url with the appropriate URL scheme.
+    IMPORTANT: When the user asks to "find", "show", "locate", or asks about any place/business/location, ALWAYS use open_maps with their request as the query. Do not describe what you would do — call the tool immediately.
     """
 
     private static let shortcutsPrompt = """

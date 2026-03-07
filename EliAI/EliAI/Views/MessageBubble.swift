@@ -989,6 +989,12 @@ private struct MarkdownMathText: UIViewRepresentable {
 
         let mutable = buildStructuredAttributedText(from: displayMarkdown)
         let fullRange = NSRange(location: 0, length: mutable.length)
+        let textColor: UIColor = role == .user ? .white : .label
+        mutable.enumerateAttribute(.foregroundColor, in: fullRange, options: []) { value, range, _ in
+            if value == nil {
+                mutable.addAttribute(.foregroundColor, value: textColor, range: range)
+            }
+        }
         if role == .user {
             mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)
         }

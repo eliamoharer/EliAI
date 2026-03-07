@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum PhoneMode: String, CaseIterable, Identifiable {
     case reminders
@@ -30,12 +31,28 @@ enum PhoneMode: String, CaseIterable, Identifiable {
     }
 
     var accentColor: Color {
+        Color(UIColor { traits in
+            traits.userInterfaceStyle == .dark ? darkUIColor : lightUIColor
+        })
+    }
+
+    private var lightUIColor: UIColor {
         switch self {
-        case .reminders: return Color(red: 0.95, green: 0.85, blue: 0.45)
-        case .health: return Color(red: 0.95, green: 0.55, blue: 0.55)
-        case .calendar: return Color(red: 0.55, green: 0.72, blue: 0.95)
-        case .openApp: return Color(red: 0.55, green: 0.88, blue: 0.62)
-        case .shortcuts: return Color(red: 0.75, green: 0.60, blue: 0.95)
+        case .reminders: return UIColor(red: 0.72, green: 0.58, blue: 0.10, alpha: 1)
+        case .health:    return UIColor(red: 0.78, green: 0.30, blue: 0.30, alpha: 1)
+        case .calendar:  return UIColor(red: 0.25, green: 0.48, blue: 0.82, alpha: 1)
+        case .openApp:   return UIColor(red: 0.22, green: 0.62, blue: 0.35, alpha: 1)
+        case .shortcuts: return UIColor(red: 0.52, green: 0.36, blue: 0.78, alpha: 1)
+        }
+    }
+
+    private var darkUIColor: UIColor {
+        switch self {
+        case .reminders: return UIColor(red: 0.95, green: 0.85, blue: 0.45, alpha: 1)
+        case .health:    return UIColor(red: 0.95, green: 0.55, blue: 0.55, alpha: 1)
+        case .calendar:  return UIColor(red: 0.55, green: 0.72, blue: 0.95, alpha: 1)
+        case .openApp:   return UIColor(red: 0.55, green: 0.88, blue: 0.62, alpha: 1)
+        case .shortcuts: return UIColor(red: 0.75, green: 0.60, blue: 0.95, alpha: 1)
         }
     }
 

@@ -7,7 +7,7 @@ import Observation
 @Observable
 class PhoneModeManager {
     private let eventStore = EKEventStore()
-    private let healthStore = HKHealthStore()
+    private var _healthStore: HKHealthStore?
     private let fileSystem: FileSystemManager
 
     private(set) var remindersAuthorized = false
@@ -16,11 +16,21 @@ class PhoneModeManager {
 
     init(fileSystem: FileSystemManager) {
         self.fileSystem = fileSystem
+        if HKHealthStore.isHealthDataAvailable() {
+            _healthStore = HKHealthStore()
+        }
     }
+
+    private var healthStore: HKHealthStore? { _healthStore }
 
     // MARK: - Permissions
 
     func requestRemindersAccess() async -> Bool {
+        let status = EKEventStore.authorizationStatus(for: .reminder)
+        if status == .fullAccess { 
+            await MainActor.run { remindersAuthorized = true }
+            return true 
+        }
         do {
             let granted = try await eventStore.requestFullAccessToReminders()
             await MainActor.run { remindersAuthorized = granted }
@@ -32,6 +42,11 @@ class PhoneModeManager {
     }
 
     func requestCalendarAccess() async -> Bool {
+        let status = EKEventStore.authorizationStatus(for: .event)
+        if status == .fullAccess {
+            await MainActor.run { calendarAuthorized = true }
+            return true
+        }
         do {
             let granted = try await eventStore.requestFullAccessToEvents()
             await MainActor.run { calendarAuthorized = granted }
@@ -43,16 +58,18 @@ class PhoneModeManager {
     }
 
     func requestHealthAccess() async -> Bool {
-        guard HKHealthStore.isHealthDataAvailable() else {
+        guard let healthStore else {
+            AppLogger.error("HealthKit not available on this device", category: .agent)
             return false
         }
 
-        let writeTypes: Set<HKSampleType> = [
-            HKQuantityType.quantityType(forIdentifier: .dietaryWater)!,
-            HKQuantityType.quantityType(forIdentifier: .dietaryCaffeine)!,
-            HKQuantityType.quantityType(forIdentifier: .stepCount)!,
-            HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)!
-        ]
+        var writeTypes = Set<HKSampleType>()
+        if let water = HKQuantityType.quantityType(forIdentifier: .dietaryWater) { writeTypes.insert(water) }
+        if let caffeine = HKQuantityType.quantityType(forIdentifier: .dietaryCaffeine) { writeTypes.insert(caffeine) }
+        if let steps = HKQuantityType.quantityType(forIdentifier: .stepCount) { writeTypes.insert(steps) }
+        if let sleep = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) { writeTypes.insert(sleep) }
+
+        guard !writeTypes.isEmpty else { return false }
 
         do {
             try await healthStore.requestAuthorization(toShare: writeTypes, read: [])
@@ -123,8 +140,8 @@ class PhoneModeManager {
     // MARK: - Health (HealthKit)
 
     func logWater(amountML: Double) async -> String {
-        guard await requestHealthAccess() else {
-            return "Error: Health access denied. Please allow in Settings."
+        guard await requestHealthAccess(), let healthStore else {
+            return "Error: Health access denied or HealthKit unavailable. Please allow in Settings > Privacy > Health."
         }
 
         guard let waterType = HKQuantityType.quantityType(forIdentifier: .dietaryWater) else {
@@ -144,8 +161,8 @@ class PhoneModeManager {
     }
 
     func logSleep(startTime: String, endTime: String, quality: String?) async -> String {
-        guard await requestHealthAccess() else {
-            return "Error: Health access denied."
+        guard await requestHealthAccess(), let healthStore else {
+            return "Error: Health access denied or HealthKit unavailable."
         }
 
         guard let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else {
@@ -181,8 +198,8 @@ class PhoneModeManager {
     }
 
     func logCaffeine(amountMG: Double) async -> String {
-        guard await requestHealthAccess() else {
-            return "Error: Health access denied."
+        guard await requestHealthAccess(), let healthStore else {
+            return "Error: Health access denied or HealthKit unavailable."
         }
 
         guard let caffeineType = HKQuantityType.quantityType(forIdentifier: .dietaryCaffeine) else {
@@ -202,8 +219,8 @@ class PhoneModeManager {
     }
 
     func logSteps(count: Int) async -> String {
-        guard await requestHealthAccess() else {
-            return "Error: Health access denied."
+        guard await requestHealthAccess(), let healthStore else {
+            return "Error: Health access denied or HealthKit unavailable."
         }
 
         guard let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else {

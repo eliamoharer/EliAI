@@ -396,42 +396,12 @@ struct ChatView: View {
             Divider()
                 .overlay(Color.white.opacity(0.25))
 
-            activeModeBadge
-
             composerRow
                 .padding(.horizontal)
                 .padding(.top, 8)
                 .padding(.bottom, inputBottomInset)
         }
         .background(inputSectionBackground)
-    }
-
-    @ViewBuilder
-    private var activeModeBadge: some View {
-        if let mode = activePhoneMode {
-            HStack(spacing: 6) {
-                Image(systemName: mode.iconName)
-                    .font(.caption2)
-                Text(mode.displayName)
-                    .font(.caption2)
-                    .fontWeight(.medium)
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        activePhoneMode = nil
-                    }
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-            }
-            .foregroundColor(mode.accentColor)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .background(Capsule().fill(mode.accentColor.opacity(0.15)))
-            .padding(.top, 6)
-            .transition(.opacity.combined(with: .scale(scale: 0.8)))
-        }
     }
 
     private var composerRow: some View {
