@@ -391,165 +391,189 @@ struct ChatView: View {
         .padding(.top, 40)
     }
 
-    private var composerAccentColor: Color {
-        activePhoneMode?.accentColor ?? Color.white.opacity(0.35)
-    }
-
     private var inputSection: some View {
         VStack(spacing: 0) {
             Divider()
                 .overlay(Color.white.opacity(0.25))
 
-            if let mode = activePhoneMode {
-                HStack(spacing: 6) {
-                    Image(systemName: mode.iconName)
-                        .font(.caption2)
-                    Text(mode.displayName)
-                        .font(.caption2)
-                        .fontWeight(.medium)
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            activePhoneMode = nil
-                        }
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .foregroundColor(mode.accentColor)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule()
-                        .fill(mode.accentColor.opacity(0.15))
-                )
-                .padding(.top, 6)
-                .transition(.opacity.combined(with: .scale(scale: 0.8)))
-            }
+            activeModeBadge
 
-            HStack(alignment: .bottom) {
+            composerRow
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, inputBottomInset)
+        }
+        .background(inputSectionBackground)
+    }
+
+    @ViewBuilder
+    private var activeModeBadge: some View {
+        if let mode = activePhoneMode {
+            HStack(spacing: 6) {
+                Image(systemName: mode.iconName)
+                    .font(.caption2)
+                Text(mode.displayName)
+                    .font(.caption2)
+                    .fontWeight(.medium)
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        if activePhoneMode != nil {
-                            activePhoneMode = nil
-                        } else {
-                            showModeMenu.toggle()
-                        }
+                        activePhoneMode = nil
                     }
                 } label: {
-                    Image(systemName: activePhoneMode != nil ? "xmark" : "plus")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(activePhoneMode != nil ? activePhoneMode!.accentColor : .primary.opacity(0.7))
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
-                .frame(width: 42, height: 42)
-                .background {
-                    liquidCircleBackground()
-                }
-                .overlay(
-                    Circle()
-                        .stroke(activePhoneMode != nil ? activePhoneMode!.accentColor.opacity(0.6) : Color.white.opacity(0.35), lineWidth: 0.8)
-                )
-                .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
-                .popover(isPresented: $showModeMenu) {
-                    phoneModeMenuContent
-                        .presentationCompactAdaptation(.popover)
-                }
-
-                TextField("Message...", text: $inputText, axis: .vertical)
-                    .focused($isInputFocused)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background {
-                        if let mode = activePhoneMode {
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .fill(mode.accentColor.opacity(0.08))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                        .fill(.ultraThinMaterial)
-                                        .opacity(0.6)
-                                )
-                        } else {
-                            liquidRoundedBackground(cornerRadius: 22)
-                        }
-                    }
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(
-                                activePhoneMode != nil ? activePhoneMode!.accentColor.opacity(0.5) : Color.white.opacity(0.35),
-                                lineWidth: 0.8
-                            )
-                    )
-                    .lineLimit(1 ... 6)
-                    .disabled(!llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel || isAgentLoopRunning)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: activePhoneMode)
-
-                Button(action: handleComposerPrimaryAction) {
-                    Image(systemName: canStopGeneration ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(
-                            canStopGeneration
-                                ? Color.red.opacity(0.92)
-                                : (activePhoneMode != nil ? activePhoneMode!.accentColor : Color.blue).opacity(canSendMessage ? 1.0 : 0.4)
-                        )
-                }
-                .padding(5)
-                .background {
-                    liquidCircleBackground()
-                }
-                .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 0.8))
-                .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
-                .disabled(!composerButtonEnabled)
             }
-            .padding(.horizontal)
-            .padding(.top, 8)
-            .padding(.bottom, inputBottomInset)
+            .foregroundColor(mode.accentColor)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(mode.accentColor.opacity(0.15)))
+            .padding(.top, 6)
+            .transition(.opacity.combined(with: .scale(scale: 0.8)))
         }
-        .background(
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .overlay(colorScheme == .light ? Color.black.opacity(0.05) : Color.white.opacity(0.04))
+    }
+
+    private var composerRow: some View {
+        let modeColor = activePhoneMode?.accentColor
+        let hasMode = modeColor != nil
+
+        return HStack(alignment: .bottom) {
+            plusButton(modeColor: modeColor, hasMode: hasMode)
+            composerTextField(modeColor: modeColor, hasMode: hasMode)
+            sendButton(modeColor: modeColor, hasMode: hasMode)
+        }
+    }
+
+    private func plusButton(modeColor: Color?, hasMode: Bool) -> some View {
+        let iconName = hasMode ? "xmark" : "plus"
+        let iconColor: Color = hasMode ? modeColor! : .primary.opacity(0.7)
+        let strokeColor: Color = hasMode ? modeColor!.opacity(0.6) : Color.white.opacity(0.35)
+
+        return Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                if hasMode {
+                    activePhoneMode = nil
+                } else {
+                    showModeMenu.toggle()
+                }
+            }
+        } label: {
+            Image(systemName: iconName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(iconColor)
+        }
+        .frame(width: 42, height: 42)
+        .background { liquidCircleBackground() }
+        .overlay(Circle().stroke(strokeColor, lineWidth: 0.8))
+        .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+        .popover(isPresented: $showModeMenu) {
+            phoneModeMenuContent
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    @ViewBuilder
+    private func composerTextField(modeColor: Color?, hasMode: Bool) -> some View {
+        let strokeColor: Color = hasMode ? modeColor!.opacity(0.5) : Color.white.opacity(0.35)
+        let isDisabled = !llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel || isAgentLoopRunning
+
+        TextField("Message...", text: $inputText, axis: .vertical)
+            .focused($isInputFocused)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background { composerTextFieldBackground(modeColor: modeColor) }
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(strokeColor, lineWidth: 0.8)
+            )
+            .lineLimit(1 ... 6)
+            .disabled(isDisabled)
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: activePhoneMode)
+    }
+
+    @ViewBuilder
+    private func composerTextFieldBackground(modeColor: Color?) -> some View {
+        if let color = modeColor {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(color.opacity(0.08))
                 .overlay(
-                    Rectangle()
-                        .stroke(Color.white.opacity(colorScheme == .light ? 0.35 : 0.16), lineWidth: 0.5)
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .opacity(0.6)
                 )
-                .ignoresSafeArea(edges: .bottom)
-        )
+        } else {
+            liquidRoundedBackground(cornerRadius: 22)
+        }
+    }
+
+    private func sendButton(modeColor: Color?, hasMode: Bool) -> some View {
+        let iconName = canStopGeneration ? "stop.circle.fill" : "arrow.up.circle.fill"
+        let baseColor: Color = hasMode ? modeColor! : Color.blue
+        let iconColor: Color = canStopGeneration
+            ? Color.red.opacity(0.92)
+            : baseColor.opacity(canSendMessage ? 1.0 : 0.4)
+
+        return Button(action: handleComposerPrimaryAction) {
+            Image(systemName: iconName)
+                .font(.system(size: 32))
+                .foregroundColor(iconColor)
+        }
+        .padding(5)
+        .background { liquidCircleBackground() }
+        .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 0.8))
+        .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+        .disabled(!composerButtonEnabled)
+    }
+
+    private var inputSectionBackground: some View {
+        let overlayColor: Color = colorScheme == .light ? Color.black.opacity(0.05) : Color.white.opacity(0.04)
+        let strokeColor = Color.white.opacity(colorScheme == .light ? 0.35 : 0.16)
+
+        return Rectangle()
+            .fill(.ultraThinMaterial)
+            .overlay(overlayColor)
+            .overlay(Rectangle().stroke(strokeColor, lineWidth: 0.5))
+            .ignoresSafeArea(edges: .bottom)
     }
 
     private var phoneModeMenuContent: some View {
         VStack(spacing: 4) {
             ForEach(PhoneMode.allCases) { mode in
-                Button {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
-                        activePhoneMode = mode
-                        showModeMenu = false
-                    }
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: mode.iconName)
-                            .font(.system(size: 16))
-                            .foregroundColor(mode.accentColor)
-                            .frame(width: 28)
-                        Text(mode.displayName)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(.primary)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(mode.accentColor.opacity(0.1))
-                    )
-                }
-                .buttonStyle(.plain)
+                phoneModeMenuRow(mode: mode)
             }
         }
         .padding(12)
         .frame(width: 200)
+    }
+
+    private func phoneModeMenuRow(mode: PhoneMode) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
+                activePhoneMode = mode
+                showModeMenu = false
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: mode.iconName)
+                    .font(.system(size: 16))
+                    .foregroundColor(mode.accentColor)
+                    .frame(width: 28)
+                Text(mode.displayName)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.primary)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(mode.accentColor.opacity(0.1))
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private var inputBottomInset: CGFloat {
