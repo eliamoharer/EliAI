@@ -77,27 +77,6 @@ class TaskManager {
         return task
     }
 
-    func scheduleReminder(message: String, delayMinutes: Int) -> String {
-        let fireDate = Date().addingTimeInterval(TimeInterval(delayMinutes * 60))
-        let notifID = scheduleNotification(
-            title: "EliAI Reminder",
-            body: message,
-            at: fireDate
-        )
-
-        let task = TaskItem(
-            title: "Reminder: \(message)",
-            details: "Scheduled for \(formattedDate(fireDate))",
-            dueDate: fireDate,
-            notificationID: notifID
-        )
-        tasks.append(task)
-        saveTasks()
-
-        AppLogger.info("Reminder scheduled in \(delayMinutes)m: \(message)", category: .agent)
-        return "Reminder set for \(formattedDate(fireDate)) (\(delayMinutes) minutes from now)."
-    }
-
     func completeTask(matching query: String) -> String {
         let lower = query.lowercased()
 

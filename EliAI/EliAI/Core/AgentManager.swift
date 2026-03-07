@@ -4,7 +4,12 @@ import Observation
 private let allToolNames: Set<String> = [
     "create_file", "read_file", "list_files",
     "create_memory", "recall_memory", "list_memories", "search_memory",
-    "create_task", "set_reminder", "list_tasks", "complete_task"
+    "create_task", "list_tasks", "complete_task",
+    "create_reminder", "list_reminder_lists",
+    "log_water", "log_sleep", "log_caffeine", "log_steps",
+    "create_event", "list_events",
+    "open_url", "open_maps", "open_maps_directions",
+    "run_shortcut", "save_shortcuts_to_memory"
 ]
 
 private let looseToolNamePattern: String = allToolNames.joined(separator: "|")
@@ -13,10 +18,12 @@ private let looseToolNamePattern: String = allToolNames.joined(separator: "|")
 class AgentManager {
     private let fileSystem: FileSystemManager
     private let taskManager: TaskManager
+    let phoneModeManager: PhoneModeManager
 
-    init(fileSystem: FileSystemManager, taskManager: TaskManager) {
+    init(fileSystem: FileSystemManager, taskManager: TaskManager, phoneModeManager: PhoneModeManager) {
         self.fileSystem = fileSystem
         self.taskManager = taskManager
+        self.phoneModeManager = phoneModeManager
     }
 
     func processToolCalls(in text: String) async -> String? {
@@ -158,19 +165,6 @@ class AgentManager {
                 AppLogger.info("Tool executed: create_task title=\(title)", category: .agent)
                 return "Task created: \(title)\(dueStr)"
 
-            case "set_reminder":
-                guard let message = requiredArgument("message", in: toolCall.arguments) else {
-                    return "Error: set_reminder requires 'message'."
-                }
-                let delayStr = toolCall.arguments["delay_minutes"]
-                    ?? toolCall.arguments["minutes"]
-                    ?? toolCall.arguments["delay"]
-                    ?? "5"
-                let delayMinutes = Int(delayStr) ?? 5
-                let result = taskManager.scheduleReminder(message: message, delayMinutes: max(1, delayMinutes))
-                AppLogger.info("Tool executed: set_reminder delay=\(delayMinutes)m", category: .agent)
-                return result
-
             case "list_tasks":
                 let includeCompleted = toolCall.arguments["include_completed"]?.lowercased() == "true"
                 AppLogger.info("Tool executed: list_tasks", category: .agent)
@@ -182,6 +176,106 @@ class AgentManager {
                 }
                 AppLogger.info("Tool executed: complete_task title=\(title)", category: .agent)
                 return taskManager.completeTask(matching: title)
+
+            // ── Reminders (EventKit) ─────────────────────────────────────
+
+            case "create_reminder":
+                guard let title = requiredArgument("title", in: toolCall.arguments) else {
+                    return "Error: create_reminder requires 'title'."
+                }
+                return await phoneModeManager.createReminder(
+                    title: title,
+                    notes: toolCall.arguments["notes"],
+                    dueDateString: toolCall.arguments["due_date"],
+                    list: toolCall.arguments["list"]
+                )
+
+            case "list_reminder_lists":
+                return await phoneModeManager.listReminderLists()
+
+            // ── Health (HealthKit) ───────────────────────────────────────
+
+            case "log_water":
+                guard let amountStr = requiredArgument("amount_ml", in: toolCall.arguments),
+                      let amount = Double(amountStr) else {
+                    return "Error: log_water requires 'amount_ml' (number)."
+                }
+                return await phoneModeManager.logWater(amountML: amount)
+
+            case "log_sleep":
+                guard let start = requiredArgument("start_time", in: toolCall.arguments),
+                      let end = requiredArgument("end_time", in: toolCall.arguments) else {
+                    return "Error: log_sleep requires 'start_time' and 'end_time'."
+                }
+                return await phoneModeManager.logSleep(startTime: start, endTime: end, quality: toolCall.arguments["quality"])
+
+            case "log_caffeine":
+                let amountStr = toolCall.arguments["amount_mg"] ?? "95"
+                let amount = Double(amountStr) ?? 95
+                return await phoneModeManager.logCaffeine(amountMG: amount)
+
+            case "log_steps":
+                guard let countStr = requiredArgument("count", in: toolCall.arguments),
+                      let count = Int(countStr) else {
+                    return "Error: log_steps requires 'count' (integer)."
+                }
+                return await phoneModeManager.logSteps(count: count)
+
+            // ── Calendar (EventKit) ──────────────────────────────────────
+
+            case "create_event":
+                guard let title = requiredArgument("title", in: toolCall.arguments),
+                      let startDate = requiredArgument("start_date", in: toolCall.arguments) else {
+                    return "Error: create_event requires 'title' and 'start_date'."
+                }
+                let allDay = toolCall.arguments["all_day"]?.lowercased() == "true"
+                return await phoneModeManager.createEvent(
+                    title: title,
+                    startDate: startDate,
+                    endDate: toolCall.arguments["end_date"],
+                    location: toolCall.arguments["location"],
+                    notes: toolCall.arguments["notes"],
+                    allDay: allDay
+                )
+
+            case "list_events":
+                let daysStr = toolCall.arguments["days_ahead"] ?? "7"
+                let days = Int(daysStr) ?? 7
+                return await phoneModeManager.listEvents(daysAhead: days)
+
+            // ── Open App / URL ───────────────────────────────────────────
+
+            case "open_url":
+                guard let url = requiredArgument("url", in: toolCall.arguments) else {
+                    return "Error: open_url requires 'url'."
+                }
+                return await MainActor.run { phoneModeManager.openURL(urlString: url) }
+
+            case "open_maps":
+                guard let query = requiredArgument("query", in: toolCall.arguments) else {
+                    return "Error: open_maps requires 'query'."
+                }
+                return await MainActor.run { phoneModeManager.openMaps(query: query) }
+
+            case "open_maps_directions":
+                guard let dest = requiredArgument("destination", in: toolCall.arguments) else {
+                    return "Error: open_maps_directions requires 'destination'."
+                }
+                return await MainActor.run { phoneModeManager.openMapsDirections(destination: dest) }
+
+            // ── Shortcuts ────────────────────────────────────────────────
+
+            case "run_shortcut":
+                guard let name = requiredArgument("name", in: toolCall.arguments) else {
+                    return "Error: run_shortcut requires 'name'."
+                }
+                return await MainActor.run { phoneModeManager.runShortcut(name: name) }
+
+            case "save_shortcuts_to_memory":
+                guard let names = requiredArgument("names", in: toolCall.arguments) else {
+                    return "Error: save_shortcuts_to_memory requires 'names'."
+                }
+                return phoneModeManager.saveShortcutsToMemory(names: names)
 
             default:
                 AppLogger.warning("Unknown tool requested: \(toolCall.name)", category: .agent)

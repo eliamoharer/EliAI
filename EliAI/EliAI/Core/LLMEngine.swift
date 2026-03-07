@@ -178,7 +178,7 @@ class LLMEngine {
         }
     }
 
-    func generate(messages: [ChatMessage], systemPrompt: String = "") -> AsyncStream<String> {
+    func generate(messages: [ChatMessage], systemPrompt: String = "", phoneMode: PhoneMode? = nil) -> AsyncStream<String> {
         generationTask?.cancel()
         isGenerating = true
         generationError = nil
@@ -194,7 +194,7 @@ class LLMEngine {
 
         let profile = activeProfile
         let clippedMessages = trimmedHistory(messages)
-        let prompt = profile.formatPrompt(messages: clippedMessages, systemPrompt: systemPromptForCurrentStyle(override: systemPrompt))
+        let prompt = profile.formatPrompt(messages: clippedMessages, systemPrompt: systemPromptForCurrentStyle(override: systemPrompt, phoneMode: phoneMode))
         applySamplingPreset(profile.sampling, to: llm)
 
         AppLogger.debug("Starting generation with profile \(profile.displayName).", category: .inference)
@@ -385,7 +385,7 @@ class LLMEngine {
         return included.reversed()
     }
 
-    private func systemPromptForCurrentStyle(override: String) -> String {
+    private func systemPromptForCurrentStyle(override: String, phoneMode: PhoneMode? = nil) -> String {
         if !override.isEmpty {
             return override
         }
@@ -439,16 +439,17 @@ class LLMEngine {
         - list_memories() — list all saved memories
         - search_memory(query) — search through memory contents
 
-        Task & reminder tools:
-        - create_task(title, due?, details?) — create a task; due can be "in 15 minutes", "tomorrow", or a date
-        - set_reminder(message, delay_minutes) — schedule a notification
+        Task tools:
+        - create_task(title, due?, details?) — create a task with optional notification; due can be "in 15 minutes", "tomorrow", or a date
         - list_tasks(include_completed?) — list tasks
         - complete_task(title) — mark a task as done
 
         Never fabricate file contents, directory listings, or tool errors. Only report what tool output actually returns.
         """
 
-        return [identity, format, thinking, tools]
+        let modePrompt = phoneMode.map { PhoneModePrompts.prompt(for: $0) } ?? ""
+
+        return [identity, format, thinking, tools, modePrompt]
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: "\n\n")
     }

@@ -26,6 +26,14 @@
 	<true/>
     <key>NSLocalNetworkUsageDescription</key>
     <string>EliAI uses the local network for development and testing purposes.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>EliAI needs access to your Reminders to create and manage reminders on your behalf.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>EliAI needs access to your Calendar to create events on your behalf.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>EliAI needs to read your health data to provide personalized health insights.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>EliAI needs to write health data to log your sleep, water intake, and other metrics.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

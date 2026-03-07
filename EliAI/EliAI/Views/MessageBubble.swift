@@ -3,10 +3,6 @@ import SwiftUI
 import SwiftMath
 import UIKit
 
-private extension NSAttributedString.Key {
-    static let inlineLatexSource = NSAttributedString.Key("EliInlineLatexSource")
-}
-
 private struct MessageSegment {
     enum Kind {
         case markdown(String)
@@ -602,7 +598,9 @@ struct MessageBubble: View {
             MathDelimiter(open: "\\begin{cases*}", close: "\\end{cases*}", display: true),
             MathDelimiter(open: "\\begin{cases}", close: "\\end{cases}", display: true),
             MathDelimiter(open: "$$", close: "$$", display: true),
-            MathDelimiter(open: "\\[", close: "\\]", display: true)
+            MathDelimiter(open: "\\[", close: "\\]", display: true),
+            MathDelimiter(open: "\\(", close: "\\)", display: false),
+            MathDelimiter(open: "$", close: "$", display: false)
         ]
 
         var segments: [MessageSegment] = []
@@ -624,9 +622,16 @@ struct MessageBubble: View {
                 break
             }
 
-            let latex = String(text[mathStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawLatex = String(text[mathStart..<endRange.lowerBound])
+            let latex = rawLatex.trimmingCharacters(in: .whitespacesAndNewlines)
+
             if !latex.isEmpty {
-                segments.append(MessageSegment(kind: .math(latex, display: startMatch.delimiter.display)))
+                if !startMatch.delimiter.display && startMatch.delimiter.open == "$" && !looksLikeInlineMath(latex) {
+                    let original = String(text[startMatch.range.lowerBound..<endRange.upperBound])
+                    segments.append(MessageSegment(kind: .markdown(original)))
+                } else {
+                    segments.append(MessageSegment(kind: .math(latex, display: startMatch.delimiter.display)))
+                }
             }
             cursor = endRange.upperBound
         }
@@ -763,6 +768,20 @@ struct MessageBubble: View {
                     continue
                 }
 
+                if delimiter.open == "$" {
+                    if text[range.lowerBound...].hasPrefix("$$") {
+                        searchStart = text.index(after: range.lowerBound)
+                        continue
+                    }
+                    if range.lowerBound > text.startIndex {
+                        let prev = text[text.index(before: range.lowerBound)]
+                        if prev.isNumber {
+                            searchStart = range.upperBound
+                            continue
+                        }
+                    }
+                }
+
                 if let currentBest = best {
                     if range.lowerBound < currentBest.range.lowerBound {
                         best = (range, delimiter)
@@ -790,6 +809,18 @@ struct MessageBubble: View {
                 searchStart = range.upperBound
                 continue
             }
+
+            if delimiter.close == "$" {
+                if text[range.lowerBound...].hasPrefix("$$") {
+                    searchStart = text.index(after: range.lowerBound)
+                    continue
+                }
+                let content = text[start..<range.lowerBound]
+                if content.contains("\n") {
+                    return nil
+                }
+            }
+
             return range
         }
 
@@ -818,6 +849,29 @@ struct MessageBubble: View {
         }
 
         return slashCount % 2 == 1
+    }
+
+    private func looksLikeInlineMath(_ content: String) -> Bool {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        if trimmed.range(of: #"^\d[\d,.]*$"#, options: .regularExpression) != nil {
+            return false
+        }
+
+        if trimmed.contains("\\") { return true }
+        if trimmed.contains("^") || trimmed.contains("_") { return true }
+        if trimmed.contains("{") && trimmed.contains("}") { return true }
+
+        let words = trimmed.split(whereSeparator: { $0.isWhitespace })
+        if words.count > 8 { return false }
+
+        let hasDigits = trimmed.unicodeScalars.contains(where: { CharacterSet.decimalDigits.contains($0) })
+        let hasLetters = trimmed.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) })
+        if hasLetters && hasDigits { return true }
+        if hasLetters && words.count <= 3 && words.allSatisfy({ $0.count <= 5 }) { return true }
+
+        return false
     }
 
 }
@@ -899,16 +953,8 @@ private struct MarkdownMathText: UIViewRepresentable {
         }
     }()
 
-    final class Coordinator {
-        var imageCache: [String: UIImage] = [:]
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
     func makeUIView(context: Context) -> UITextView {
-        let view = MathCopyTextView()
+        let view = UITextView()
         view.backgroundColor = .clear
         view.isEditable = false
         view.isScrollEnabled = false
@@ -925,7 +971,7 @@ private struct MarkdownMathText: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
-        uiView.attributedText = makeAttributedText(coordinator: context.coordinator)
+        uiView.attributedText = makeAttributedText()
         uiView.tintColor = .systemBlue
     }
 
@@ -936,16 +982,9 @@ private struct MarkdownMathText: UIViewRepresentable {
         return CGSize(width: width, height: ceil(measured.height))
     }
 
-    private func makeAttributedText(coordinator: Coordinator) -> NSAttributedString {
+    private func makeAttributedText() -> NSAttributedString {
         let cleanText = MessageFormatting.normalizeNewlines(text.isEmpty ? " " : text)
-
-        // Extract math tokens BEFORE unescaping \$ so that escaped dollars
-        // are correctly skipped by the isEscaped() check in the extractor.
-        let extracted = MessageFormatting.extractInlineMathPlaceholders(from: cleanText)
-
-        let normalizedMarkdown = MessageFormatting.normalizeMarkdown(extracted.markdown)
-
-        // Unescape literal \$ AFTER math extraction so they render as plain $.
+        let normalizedMarkdown = MessageFormatting.normalizeMarkdown(cleanText)
         let displayMarkdown = normalizedMarkdown.replacingOccurrences(of: "\\$", with: "$")
 
         let mutable = buildStructuredAttributedText(from: displayMarkdown)
@@ -955,18 +994,6 @@ private struct MarkdownMathText: UIViewRepresentable {
         }
 
         applyReadableTextSizing(to: mutable, delta: 0)
-
-        applyInlineMathAttachments(
-            to: mutable,
-            tokens: extracted.tokens,
-            coordinator: coordinator
-        )
-
-        // Restore any placeholders that markdown normalization displaced,
-        // then let the loose-dollar pass pick up their restored $...$ form.
-        removeAnyResidualInlineMathPlaceholders(from: mutable, tokens: extracted.tokens)
-        applyLooseInlineDollarMathAttachments(to: mutable, coordinator: coordinator)
-
         return mutable
     }
 
@@ -1107,302 +1134,6 @@ private struct MarkdownMathText: UIViewRepresentable {
         attributed.addAttribute(.font, value: headingFont, range: NSRange(location: 0, length: attributed.length))
     }
 
-    private func applyInlineMathAttachments(
-        to mutable: NSMutableAttributedString,
-        tokens: [InlineMathToken],
-        coordinator: Coordinator
-    ) {
-        for token in tokens {
-            var searchRange = NSRange(location: 0, length: mutable.length)
-            var replacementCount = 0
-
-            while true {
-                let currentString = mutable.string as NSString
-                let found = currentString.range(of: token.placeholder, options: [], range: searchRange)
-                guard found.location != NSNotFound else { break }
-
-                let fontAnchor = max(0, found.location - 1)
-                let fallbackFont = UIFont.preferredFont(forTextStyle: .body)
-                let referenceFont = (mutable.attribute(.font, at: fontAnchor, effectiveRange: nil) as? UIFont) ?? fallbackFont
-                let attachment = inlineMathAttachment(
-                    latex: token.latex,
-                    referenceFont: referenceFont,
-                    coordinator: coordinator
-                )
-
-                let replacement = NSMutableAttributedString(attachment: attachment)
-                let replacementRange = NSRange(location: 0, length: replacement.length)
-                replacement.addAttribute(.inlineLatexSource, value: token.latex, range: replacementRange)
-                mutable.replaceCharacters(in: found, with: replacement)
-                replacementCount += 1
-
-                // Update search range after replacement
-                let replacementLength = replacement.length
-                let nextLocation = found.location + replacementLength
-                if nextLocation >= mutable.length {
-                    break
-                }
-                searchRange = NSRange(location: nextLocation, length: mutable.length - nextLocation)
-            }
-            
-            // Log if placeholder wasn't found (for debugging)
-            if replacementCount == 0 {
-                AppLogger.debug("Math placeholder '\(token.placeholder)' not found in attributed string. String length: \(mutable.length)", category: .ui)
-            }
-        }
-    }
-
-    private func applyLooseInlineDollarMathAttachments(
-        to mutable: NSMutableAttributedString,
-        coordinator: Coordinator
-    ) {
-        var searchStart = mutable.string.startIndex
-
-        while searchStart < mutable.string.endIndex {
-            let source = mutable.string
-            guard let openIndex = source[searchStart...].firstIndex(of: "$") else {
-                break
-            }
-            if isEscaped(source, at: openIndex) || source[openIndex...].hasPrefix("$$") {
-                searchStart = source.index(after: openIndex)
-                continue
-            }
-
-            let contentStart = source.index(after: openIndex)
-            guard let closeIndex = nextLooseInlineDollarClose(in: source, from: contentStart) else {
-                searchStart = contentStart
-                continue
-            }
-
-            let rawLatex = String(source[contentStart..<closeIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard looksLikeInlineMathFallback(rawLatex) else {
-                searchStart = source.index(after: openIndex)
-                continue
-            }
-
-            let replaceRange = NSRange(openIndex..<source.index(after: closeIndex), in: source)
-            guard replaceRange.location != NSNotFound else {
-                searchStart = source.index(after: closeIndex)
-                continue
-            }
-
-            let fontAnchor = max(0, replaceRange.location - 1)
-            let fallbackFont = UIFont.preferredFont(forTextStyle: .body)
-            let referenceFont = (mutable.attribute(.font, at: fontAnchor, effectiveRange: nil) as? UIFont) ?? fallbackFont
-            let attachment = inlineMathAttachment(
-                latex: rawLatex,
-                referenceFont: referenceFont,
-                coordinator: coordinator
-            )
-
-            let replacement = NSMutableAttributedString(attachment: attachment)
-            replacement.addAttribute(
-                .inlineLatexSource,
-                value: rawLatex,
-                range: NSRange(location: 0, length: replacement.length)
-            )
-            mutable.replaceCharacters(in: replaceRange, with: replacement)
-
-            let nextLocation = replaceRange.location + replacement.length
-            let updatedSource = mutable.string
-            let utf16 = updatedSource.utf16
-            guard let utf16Index = utf16.index(utf16.startIndex, offsetBy: nextLocation, limitedBy: utf16.endIndex),
-                  let nextIndex = String.Index(utf16Index, within: updatedSource) else {
-                break
-            }
-            searchStart = nextIndex
-        }
-    }
-
-    private func nextLooseInlineDollarClose(in text: String, from start: String.Index) -> String.Index? {
-        var cursor = start
-        while cursor < text.endIndex {
-            let character = text[cursor]
-            if character == "\n" {
-                return nil
-            }
-            if character == "$",
-               !isEscaped(text, at: cursor),
-               !text[cursor...].hasPrefix("$$") {
-                return cursor
-            }
-            cursor = text.index(after: cursor)
-        }
-        return nil
-    }
-
-    private func looksLikeInlineMathFallback(_ latex: String) -> Bool {
-        let content = latex.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !content.isEmpty else {
-            return false
-        }
-        if content.count > Int(AppConstants.LaTeX.maxInlineMathLength) {
-            return false
-        }
-        if content.range(
-            of: #"^\d{1,3}(,\d{3})*(\.\d{1,2})?$|^\d+(\.\d{1,2})?$"#,
-            options: .regularExpression
-        ) != nil {
-            return false
-        }
-
-        if content.contains("\\") ||
-            content.range(of: #"[-=+\-*/^_<>]"#, options: .regularExpression) != nil ||
-            content.contains("{") || content.contains("}") ||
-            content.contains("(") || content.contains(")") ||
-            content.contains("[") || content.contains("]") {
-            return true
-        }
-
-        let hasLetters = content.range(of: #"[A-Za-z]"#, options: .regularExpression) != nil
-        let hasDigits = content.range(of: #"\d"#, options: .regularExpression) != nil
-        if hasLetters && hasDigits {
-            return true
-        }
-        if hasLetters {
-            let words = content.split(whereSeparator: { $0.isWhitespace })
-            return !words.isEmpty && words.count <= 3 && words.allSatisfy { $0.count <= 5 }
-        }
-        return false
-    }
-
-    private func isEscaped(_ text: String, at index: String.Index) -> Bool {
-        guard index > text.startIndex else {
-            return false
-        }
-
-        var slashCount = 0
-        var cursor = text.index(before: index)
-        while true {
-            if text[cursor] == "\\" {
-                slashCount += 1
-            } else {
-                break
-            }
-            if cursor == text.startIndex {
-                break
-            }
-            cursor = text.index(before: cursor)
-        }
-        return slashCount % 2 == 1
-    }
-
-    private func inlineMathAttachment(
-        latex: String,
-        referenceFont: UIFont,
-        coordinator: Coordinator
-    ) -> NSTextAttachment {
-        let color = role == .user ? UIColor.white : UIColor.label
-        let mathFontSize = max(17, referenceFont.pointSize + 1)
-        let cacheKey = "\(role.rawValue)|\(mathFontSize)|\(latex)"
-
-        let image: UIImage
-        if let cached = coordinator.imageCache[cacheKey] {
-            image = cached
-        } else {
-            image = renderInlineMathImage(latex: latex, color: color, fontSize: mathFontSize)
-            coordinator.imageCache[cacheKey] = image
-        }
-
-        let attachment = NSTextAttachment()
-        attachment.image = image
-        let verticalOffset = (referenceFont.capHeight - image.size.height) / 2.0
-        attachment.bounds = CGRect(
-            x: 0,
-            y: verticalOffset,
-            width: image.size.width,
-            height: image.size.height
-        )
-        return attachment
-    }
-
-    private func renderInlineMathImage(latex: String, color: UIColor, fontSize: CGFloat) -> UIImage {
-        let label = MTMathUILabel()
-        label.backgroundColor = .clear
-        label.latex = LaTeXPreprocessor.preprocess(latex)
-        label.font = MTFontManager().font(withName: MathFont.latinModernFont.rawValue, size: fontSize)
-        label.labelMode = usesDisplayMathLayout(latex) ? .display : .text
-        label.textColor = color
-        label.textAlignment = .left
-        label.contentInsets = MTEdgeInsets(top: 1, left: 0, bottom: 1, right: 0)
-
-        let measured = label.sizeThatFits(
-            CGSize(
-                width: AppConstants.LaTeX.maxRenderSize,
-                height: AppConstants.LaTeX.maxRenderSize
-            )
-        )
-        if !measured.width.isFinite || !measured.height.isFinite || 
-           measured.width <= AppConstants.LaTeX.fallbackImageMinSize || 
-           measured.height <= AppConstants.LaTeX.fallbackImageMinSize {
-            return renderFallbackInlineTextImage(latex: latex, color: color, fontSize: fontSize)
-        }
-        let width = max(AppConstants.LaTeX.fallbackImageMinSize, ceil(measured.width))
-        let height = max(ceil(fontSize * 1.2), ceil(measured.height))
-        let renderSize = CGSize(width: width, height: height)
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.opaque = false
-        format.scale = UIScreen.main.scale
-        let renderer = UIGraphicsImageRenderer(size: renderSize, format: format)
-
-        return renderer.image { context in
-            label.frame = CGRect(
-                x: 0,
-                y: max(0, (renderSize.height - measured.height) / 2),
-                width: width,
-                height: measured.height
-            )
-            label.setNeedsLayout()
-            label.layoutIfNeeded()
-            label.layer.render(in: context.cgContext)
-        }
-    }
-
-    private func usesDisplayMathLayout(_ latex: String) -> Bool {
-        let normalized = latex.replacingOccurrences(of: " ", with: "")
-        let displayEnvironments = [
-            "\\begin{cases}", "\\begin{cases*}",
-            "\\begin{aligned}", "\\begin{array}",
-            "\\begin{matrix}", "\\begin{bmatrix}",
-            "\\begin{pmatrix}", "\\begin{vmatrix}",
-            "\\begin{Vmatrix}", "\\begin{gather}",
-            "\\begin{gather*}"
-        ]
-        if displayEnvironments.contains(where: { normalized.contains($0) }) {
-            return true
-        }
-        if normalized.contains("\\\\") {
-            return true
-        }
-        return false
-    }
-
-    private func renderFallbackInlineTextImage(latex: String, color: UIColor, fontSize: CGFloat) -> UIImage {
-        let font = UIFont.systemFont(ofSize: fontSize, weight: .regular)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: color
-        ]
-        let text = latex as NSString
-        let measured = text.size(withAttributes: attributes)
-        let size = CGSize(
-            width: max(AppConstants.LaTeX.fallbackImageMinSize, ceil(measured.width)), 
-            height: max(AppConstants.LaTeX.fallbackImageMinHeight, ceil(measured.height))
-        )
-
-        let format = UIGraphicsImageRendererFormat.default()
-        format.opaque = false
-        format.scale = UIScreen.main.scale
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
-        return renderer.image { _ in
-            text.draw(
-                in: CGRect(x: 0, y: max(0, (size.height - measured.height) / 2), width: size.width, height: size.height),
-                withAttributes: attributes
-            )
-        }
-    }
-
     private func applyReadableTextSizing(to mutable: NSMutableAttributedString, delta: CGFloat) {
         let fullRange = NSRange(location: 0, length: mutable.length)
         guard fullRange.length > 0 else {
@@ -1421,52 +1152,6 @@ private struct MarkdownMathText: UIViewRepresentable {
 
         for (range, font) in updates {
             mutable.addAttribute(.font, value: font, range: range)
-        }
-    }
-
-    private func removeAnyResidualInlineMathPlaceholders(
-        from mutable: NSMutableAttributedString,
-        tokens: [InlineMathToken]
-    ) {
-        for token in tokens {
-            while true {
-                let whole = mutable.string as NSString
-                let range = whole.range(of: token.placeholder)
-                if range.location == NSNotFound {
-                    break
-                }
-                mutable.replaceCharacters(in: range, with: "$\(token.latex)$")
-            }
-        }
-    }
-}
-
-private final class MathCopyTextView: UITextView {
-    override func copy(_ sender: Any?) {
-        let range = selectedRange
-        guard range.location != NSNotFound, range.length > 0 else {
-            super.copy(sender)
-            return
-        }
-
-        let selected = attributedText.attributedSubstring(from: range)
-        var rendered = ""
-        selected.enumerateAttributes(
-            in: NSRange(location: 0, length: selected.length),
-            options: []
-        ) { attributes, attrRange, _ in
-            if let latex = attributes[.inlineLatexSource] as? String {
-                rendered += "$\(latex)$"
-            } else {
-                let chunk = (selected.string as NSString).substring(with: attrRange)
-                rendered += chunk
-            }
-        }
-
-        if rendered.isEmpty {
-            super.copy(sender)
-        } else {
-            UIPasteboard.general.string = rendered
         }
     }
 }

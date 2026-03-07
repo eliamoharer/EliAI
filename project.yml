@@ -21,12 +21,15 @@ targets:
       SWIFT_COMPILATION_MODE: wholemodule
       OTHER_SWIFT_FLAGS:
         - -cxx-interoperability-mode=default
+      CODE_SIGN_ENTITLEMENTS: EliAI/EliAI/EliAI.entitlements
     dependencies:
       - package: LLM
         product: LLM
       - package: SwiftMath
         product: SwiftMath
       - sdk: Accelerate.framework
+      - sdk: EventKit.framework
+      - sdk: HealthKit.framework
     scheme:
       testTargets:
         - EliAITests

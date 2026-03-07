@@ -17,6 +17,8 @@ struct ChatView: View {
     @State private var keyboardOverlap: CGFloat = 0
     @State private var scrollRequestID: Int = 0
     @State private var isAgentLoopRunning = false
+    @State var activePhoneMode: PhoneMode? = nil
+    @State private var showModeMenu = false
     private let bottomAnchorID = "chatBottomAnchor"
 
     private var currentMessages: [ChatMessage] {
@@ -389,25 +391,99 @@ struct ChatView: View {
         .padding(.top, 40)
     }
 
+    private var composerAccentColor: Color {
+        activePhoneMode?.accentColor ?? Color.white.opacity(0.35)
+    }
+
     private var inputSection: some View {
         VStack(spacing: 0) {
             Divider()
                 .overlay(Color.white.opacity(0.25))
+
+            if let mode = activePhoneMode {
+                HStack(spacing: 6) {
+                    Image(systemName: mode.iconName)
+                        .font(.caption2)
+                    Text(mode.displayName)
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            activePhoneMode = nil
+                        }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .foregroundColor(mode.accentColor)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule()
+                        .fill(mode.accentColor.opacity(0.15))
+                )
+                .padding(.top, 6)
+                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
+
             HStack(alignment: .bottom) {
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        if activePhoneMode != nil {
+                            activePhoneMode = nil
+                        } else {
+                            showModeMenu.toggle()
+                        }
+                    }
+                } label: {
+                    Image(systemName: activePhoneMode != nil ? "xmark" : "plus")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(activePhoneMode != nil ? activePhoneMode!.accentColor : .primary.opacity(0.7))
+                }
+                .frame(width: 42, height: 42)
+                .background {
+                    liquidCircleBackground()
+                }
+                .overlay(
+                    Circle()
+                        .stroke(activePhoneMode != nil ? activePhoneMode!.accentColor.opacity(0.6) : Color.white.opacity(0.35), lineWidth: 0.8)
+                )
+                .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+                .popover(isPresented: $showModeMenu) {
+                    phoneModeMenuContent
+                        .presentationCompactAdaptation(.popover)
+                }
+
                 TextField("Message...", text: $inputText, axis: .vertical)
                     .focused($isInputFocused)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background {
-                        liquidRoundedBackground(cornerRadius: 22)
+                        if let mode = activePhoneMode {
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .fill(mode.accentColor.opacity(0.08))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                        .fill(.ultraThinMaterial)
+                                        .opacity(0.6)
+                                )
+                        } else {
+                            liquidRoundedBackground(cornerRadius: 22)
+                        }
                     }
                     .overlay(
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(Color.white.opacity(0.35), lineWidth: 0.8)
+                            .stroke(
+                                activePhoneMode != nil ? activePhoneMode!.accentColor.opacity(0.5) : Color.white.opacity(0.35),
+                                lineWidth: 0.8
+                            )
                     )
                     .lineLimit(1 ... 6)
                     .disabled(!llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel || isAgentLoopRunning)
+                    .animation(.spring(response: 0.4, dampingFraction: 0.8), value: activePhoneMode)
 
                 Button(action: handleComposerPrimaryAction) {
                     Image(systemName: canStopGeneration ? "stop.circle.fill" : "arrow.up.circle.fill")
@@ -415,7 +491,7 @@ struct ChatView: View {
                         .foregroundColor(
                             canStopGeneration
                                 ? Color.red.opacity(0.92)
-                                : Color.blue.opacity(canSendMessage ? 1.0 : 0.4)
+                                : (activePhoneMode != nil ? activePhoneMode!.accentColor : Color.blue).opacity(canSendMessage ? 1.0 : 0.4)
                         )
                 }
                 .padding(5)
@@ -440,6 +516,40 @@ struct ChatView: View {
                 )
                 .ignoresSafeArea(edges: .bottom)
         )
+    }
+
+    private var phoneModeMenuContent: some View {
+        VStack(spacing: 4) {
+            ForEach(PhoneMode.allCases) { mode in
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.78)) {
+                        activePhoneMode = mode
+                        showModeMenu = false
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: mode.iconName)
+                            .font(.system(size: 16))
+                            .foregroundColor(mode.accentColor)
+                            .frame(width: 28)
+                        Text(mode.displayName)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(.primary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(mode.accentColor.opacity(0.1))
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .frame(width: 200)
     }
 
     private var inputBottomInset: CGFloat {
@@ -548,7 +658,7 @@ struct ChatView: View {
                     content: "You MUST respond with a <tool_call> block for this request."
                 ))
             }
-            let stream = llmEngine.generate(messages: history)
+            let stream = llmEngine.generate(messages: history, phoneMode: activePhoneMode)
             forceToolCallNextStep = false
 
             for await token in stream {
@@ -684,21 +794,27 @@ struct ChatView: View {
 
     private func requiresToolCall(for userPrompt: String) -> Bool {
         let text = userPrompt.lowercased()
+
+        if activePhoneMode != nil {
+            return true
+        }
+
         let actions = [
             "create", "write", "save", "store", "read", "open", "list",
             "show", "delete", "remove", "append", "update", "recall",
             "remember", "search", "find", "remind", "set reminder",
-            "schedule", "complete", "finish", "done"
+            "schedule", "complete", "finish", "done", "log", "run", "launch"
         ]
         let targets = [
             "file", "files", "folder", "directory", "memory", "memories",
-            "task", "tasks", "note", "notes", "reminder", "reminders"
+            "task", "tasks", "note", "notes", "reminder", "reminders",
+            "event", "calendar", "shortcut", "shortcuts", "water", "sleep",
+            "caffeine", "steps", "health", "maps", "directions"
         ]
 
         let hasAction = actions.contains(where: { text.contains($0) })
         let hasTarget = targets.contains(where: { text.contains($0) })
 
-        // Direct reminder phrasing ("remind me in 5 minutes")
         if text.contains("remind me") || text.contains("set a reminder") || text.contains("set reminder") {
             return true
         }
@@ -711,11 +827,14 @@ struct ChatView: View {
         if lowered.contains("<tool_call>") {
             return true
         }
-        let knownTools = [
+        var knownTools = [
             "create_file", "read_file", "list_files",
             "create_memory", "recall_memory", "list_memories", "search_memory",
-            "create_task", "set_reminder", "list_tasks", "complete_task"
+            "create_task", "list_tasks", "complete_task"
         ]
+        if let mode = activePhoneMode {
+            knownTools.append(contentsOf: mode.toolNames)
+        }
         return lowered.contains("\"name\"") && knownTools.contains(where: { lowered.contains($0) })
     }
 
