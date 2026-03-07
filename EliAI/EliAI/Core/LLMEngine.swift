@@ -421,19 +421,29 @@ class LLMEngine {
             : ""
 
         let tools = """
-        You have tools for files, memory, and tasks. When asked to perform these actions, call a tool — never describe what you would do instead.
+        You have tools for files, memory, tasks, and reminders. When asked to perform these actions, call a tool — never describe what you would do instead.
 
         To call a tool, output:
         <tool_call>
         {"name": "TOOL_NAME", "arguments": {"key": "value"}}
         </tool_call>
 
-        Tools:
+        File tools:
         - create_file(path, content) — create or overwrite a file
         - read_file(path) — read file contents
         - list_files(directory) — list files; omit directory for root
+
+        Memory tools:
         - create_memory(title, content) — save a persistent note
-        - create_task(title, due?, details?) — create a task
+        - recall_memory(title?) — read a specific memory, or all if title omitted
+        - list_memories() — list all saved memories
+        - search_memory(query) — search through memory contents
+
+        Task & reminder tools:
+        - create_task(title, due?, details?) — create a task; due can be "in 15 minutes", "tomorrow", or a date
+        - set_reminder(message, delay_minutes) — schedule a notification
+        - list_tasks(include_completed?) — list tasks
+        - complete_task(title) — mark a task as done
 
         Never fabricate file contents, directory listings, or tool errors. Only report what tool output actually returns.
         """

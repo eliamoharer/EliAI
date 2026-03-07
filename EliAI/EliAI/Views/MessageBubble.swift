@@ -63,13 +63,6 @@ struct MessageBubble: View {
         HStack(alignment: .bottom, spacing: 8) {
             if message.role == .user {
                 Spacer()
-            } else {
-                Image(systemName: "brain.head.profile")
-                    .resizable()
-                    .frame(width: 22, height: 22)
-                    .foregroundColor(.blue)
-                    .padding(6)
-                    .background(Circle().fill(Color.blue.opacity(0.14)))
             }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {

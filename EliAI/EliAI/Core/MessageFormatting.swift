@@ -281,6 +281,13 @@ enum MessageFormatting {
             return false
         }
 
+        // For explicit $...$ spans: trust the delimiter after excluding
+        // currency amounts, display-math environments, and long prose.
+        if delimiter.open == "$" {
+            if words.count > 8 { return false }
+            return true
+        }
+
         if hasLatexCommand || hasOperators || hasBrackets || hasMathBraces {
             return true
         }
@@ -292,7 +299,6 @@ enum MessageFormatting {
             return true
         }
 
-        // Treat very long prose in $...$ as likely non-math.
         if words.count > 8 {
             return false
         }

@@ -684,11 +684,25 @@ struct ChatView: View {
 
     private func requiresToolCall(for userPrompt: String) -> Bool {
         let text = userPrompt.lowercased()
-        let actions = ["create", "write", "save", "store", "read", "open", "list", "show", "delete", "remove", "append", "update"]
-        let targets = ["file", "files", "folder", "directory", "memory", "memories", "task", "tasks", "note", "notes"]
+        let actions = [
+            "create", "write", "save", "store", "read", "open", "list",
+            "show", "delete", "remove", "append", "update", "recall",
+            "remember", "search", "find", "remind", "set reminder",
+            "schedule", "complete", "finish", "done"
+        ]
+        let targets = [
+            "file", "files", "folder", "directory", "memory", "memories",
+            "task", "tasks", "note", "notes", "reminder", "reminders"
+        ]
 
         let hasAction = actions.contains(where: { text.contains($0) })
         let hasTarget = targets.contains(where: { text.contains($0) })
+
+        // Direct reminder phrasing ("remind me in 5 minutes")
+        if text.contains("remind me") || text.contains("set a reminder") || text.contains("set reminder") {
+            return true
+        }
+
         return hasAction && hasTarget
     }
 
@@ -697,12 +711,12 @@ struct ChatView: View {
         if lowered.contains("<tool_call>") {
             return true
         }
-        return lowered.contains("\"name\"") &&
-            (lowered.contains("create_file") ||
-                lowered.contains("read_file") ||
-                lowered.contains("list_files") ||
-                lowered.contains("create_memory") ||
-                lowered.contains("create_task"))
+        let knownTools = [
+            "create_file", "read_file", "list_files",
+            "create_memory", "recall_memory", "list_memories", "search_memory",
+            "create_task", "set_reminder", "list_tasks", "complete_task"
+        ]
+        return lowered.contains("\"name\"") && knownTools.contains(where: { lowered.contains($0) })
     }
 
     private func hasToolOutputAfterLatestUser(in messages: [ChatMessage]) -> Bool {
