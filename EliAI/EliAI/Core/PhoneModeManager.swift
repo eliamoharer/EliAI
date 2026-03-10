@@ -73,11 +73,28 @@ class PhoneModeManager {
 
         do {
             try await healthStore.requestAuthorization(toShare: writeTypes, read: [])
-            await MainActor.run { healthAuthorized = true }
-            return true
         } catch {
             AppLogger.error("HealthKit access error: \(error.localizedDescription)", category: .agent)
             return false
+        }
+
+        let anyAuthorized = writeTypes.contains { type in
+            healthStore.authorizationStatus(for: type) == .sharingAuthorized
+        }
+        await MainActor.run { healthAuthorized = anyAuthorized }
+        return anyAuthorized
+    }
+
+    func preauthorize(for mode: PhoneMode) async {
+        switch mode {
+        case .reminders:
+            _ = await requestRemindersAccess()
+        case .calendar:
+            _ = await requestCalendarAccess()
+        case .health:
+            _ = await requestHealthAccess()
+        default:
+            break
         }
     }
 
@@ -314,7 +331,7 @@ class PhoneModeManager {
 
         UIApplication.shared.open(url)
         AppLogger.info("Opened URL: \(urlString)", category: .agent)
-        return "Opened: \(urlString)"
+        return "Done — opened \(urlString) on the device."
     }
 
     @MainActor
@@ -327,7 +344,7 @@ class PhoneModeManager {
 
         UIApplication.shared.open(url)
         AppLogger.info("Opened Maps search: \(query)", category: .agent)
-        return "Opened Maps searching for: \(query)"
+        return "Done — Apple Maps is now open and showing results for \"\(query)\". The user can see the results on their screen. Do NOT make up addresses, distances, or specific locations."
     }
 
     @MainActor
@@ -340,7 +357,7 @@ class PhoneModeManager {
 
         UIApplication.shared.open(url)
         AppLogger.info("Opened Maps directions to: \(destination)", category: .agent)
-        return "Opened Maps with directions to: \(destination)"
+        return "Done — Apple Maps is now open with directions to \"\(destination)\". The user can see the route on their screen. Do NOT make up addresses or travel times."
     }
 
     // MARK: - Shortcuts
@@ -355,7 +372,7 @@ class PhoneModeManager {
 
         UIApplication.shared.open(url)
         AppLogger.info("Running shortcut: \(name)", category: .agent)
-        return "Running shortcut: \(name)"
+        return "Done — the shortcut \"\(name)\" has been launched."
     }
 
     func saveShortcutsToMemory(names: String) -> String {

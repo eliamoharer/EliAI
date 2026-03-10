@@ -57,7 +57,6 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             topGrabber
-            headerSection
             messagesSection
             inputSection
         }
@@ -86,23 +85,19 @@ struct ChatView: View {
     }
 
     private var topGrabber: some View {
-        Capsule()
-            .fill(Color.primary.opacity(0.22))
-            .frame(width: isCollapsed ? 56 : 42, height: 5)
-            .padding(.top, isCollapsed ? 10 : 8)
-            .padding(.bottom, isCollapsed ? 8 : 6)
-    }
-
-    private var headerSection: some View {
         HStack {
-            Text(chatManager.currentSession?.title ?? "EliAI")
-                .font(.headline)
-                .fontWeight(.bold)
             Spacer()
-            headerTrailing
+            Capsule()
+                .fill(Color.primary.opacity(0.22))
+                .frame(width: isCollapsed ? 56 : 42, height: 5)
+            Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, isCollapsed ? 10 : 16)
+        .overlay(alignment: .trailing) {
+            headerTrailing
+                .padding(.trailing, 16)
+        }
+        .padding(.top, isCollapsed ? 10 : 8)
+        .padding(.bottom, isCollapsed ? 8 : 6)
     }
 
     @ViewBuilder
@@ -524,6 +519,9 @@ struct ChatView: View {
                 activePhoneMode = mode
                 showModeMenu = false
             }
+            Task {
+                await agentManager.phoneModeManager.preauthorize(for: mode)
+            }
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: mode.iconName)
@@ -744,6 +742,14 @@ struct ChatView: View {
                 }
             }
 
+            if fullResponse.contains("<tool_call>") && !fullResponse.contains("</tool_call>") {
+                fullResponse += "\n</tool_call>"
+                await MainActor.run {
+                    assistantMessage.content = fullResponse
+                    chatManager.updateLastMessage(assistantMessage)
+                }
+            }
+
             let toolOutput = await agentManager.processToolCalls(in: fullResponse)
             if toolOutput == nil,
                !enforcedToolRetryUsed,
@@ -789,15 +795,15 @@ struct ChatView: View {
     private func requiresToolCall(for userPrompt: String) -> Bool {
         let text = userPrompt.lowercased()
 
-        if activePhoneMode != nil {
+        if text.contains("remind me") || text.contains("set a reminder") || text.contains("set reminder") {
             return true
         }
 
         let actions = [
             "create", "write", "save", "store", "read", "open", "list",
             "show", "delete", "remove", "append", "update", "recall",
-            "remember", "search", "find", "remind", "set reminder",
-            "schedule", "complete", "finish", "done", "log", "run", "launch"
+            "remember", "search", "find", "remind", "schedule",
+            "complete", "finish", "done", "log", "run", "launch"
         ]
         let targets = [
             "file", "files", "folder", "directory", "memory", "memories",
@@ -806,19 +812,12 @@ struct ChatView: View {
             "caffeine", "steps", "health", "maps", "directions"
         ]
 
-        let hasAction = actions.contains(where: { text.contains($0) })
-        let hasTarget = targets.contains(where: { text.contains($0) })
-
-        if text.contains("remind me") || text.contains("set a reminder") || text.contains("set reminder") {
-            return true
-        }
-
-        return hasAction && hasTarget
+        return actions.contains(where: { text.contains($0) }) &&
+               targets.contains(where: { text.contains($0) })
     }
 
     private func containsToolInvocation(in response: String) -> Bool {
-        let lowered = response.lowercased()
-        if lowered.contains("<tool_call>") {
+        if response.contains("<tool_call>") {
             return true
         }
         var knownTools = [
@@ -829,7 +828,13 @@ struct ChatView: View {
         if let mode = activePhoneMode {
             knownTools.append(contentsOf: mode.toolNames)
         }
-        return lowered.contains("\"name\"") && knownTools.contains(where: { lowered.contains($0) })
+        let lowered = response.lowercased()
+        for tool in knownTools {
+            if lowered.contains(tool) {
+                return true
+            }
+        }
+        return false
     }
 
     private func hasToolOutputAfterLatestUser(in messages: [ChatMessage]) -> Bool {

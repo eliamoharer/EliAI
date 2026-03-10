@@ -45,18 +45,49 @@ class AgentManager {
         }
 
         let loosePayloads = uniqueStrings(in: extractLooseToolCallPayloads(from: text))
-        guard !loosePayloads.isEmpty else { return nil }
-
-        var toolOutputs: [String] = []
-        for payload in loosePayloads {
-            guard let toolCall = parseToolCall(from: payload) else {
-                continue
+        if !loosePayloads.isEmpty {
+            var toolOutputs: [String] = []
+            for payload in loosePayloads {
+                guard let toolCall = parseToolCall(from: payload) else { continue }
+                AppLogger.info("Loose tool call parsed: \(toolCall.name)", category: .agent)
+                let output = await execute(toolCall)
+                toolOutputs.append("<tool_result>\n\(output)\n</tool_result>")
             }
-            AppLogger.info("Loose tool call parsed: \(toolCall.name)", category: .agent)
-            let output = await execute(toolCall)
-            toolOutputs.append("<tool_result>\n\(output)\n</tool_result>")
+            if !toolOutputs.isEmpty {
+                return toolOutputs.joined(separator: "\n\n")
+            }
         }
-        return toolOutputs.isEmpty ? nil : toolOutputs.joined(separator: "\n\n")
+
+        if let toolCall = parseFunctionStyleCall(from: text) {
+            AppLogger.info("Function-style tool call parsed: \(toolCall.name)", category: .agent)
+            let output = await execute(toolCall)
+            return "<tool_result>\n\(output)\n</tool_result>"
+        }
+
+        return nil
+    }
+
+    private func parseFunctionStyleCall(from text: String) -> ToolCall? {
+        let toolNameGroup = allToolNames.joined(separator: "|")
+        let pattern = #"(?:\[|\b)("# + toolNameGroup + #")\s*\(\s*(?:query\s*[:=]\s*)?["\"]?([^")\]]+?)["\"]?\s*\)(?:\]|)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return nil }
+        let nsText = text as NSString
+        guard let match = regex.firstMatch(in: text, options: [], range: NSRange(location: 0, length: nsText.length)),
+              match.numberOfRanges >= 3 else { return nil }
+        let name = nsText.substring(with: match.range(at: 1))
+        let argValue = nsText.substring(with: match.range(at: 2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard allToolNames.contains(name), !argValue.isEmpty else { return nil }
+
+        let argKey: String
+        switch name {
+        case "open_maps": argKey = "query"
+        case "open_maps_directions": argKey = "destination"
+        case "open_url": argKey = "url"
+        case "run_shortcut": argKey = "name"
+        case "create_reminder": argKey = "title"
+        default: argKey = "query"
+        }
+        return ToolCall(name: name, arguments: [argKey: argValue])
     }
 
     // MARK: - Tool Execution

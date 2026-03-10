@@ -599,8 +599,6 @@ struct MessageBubble: View {
             MathDelimiter(open: "\\begin{cases}", close: "\\end{cases}", display: true),
             MathDelimiter(open: "$$", close: "$$", display: true),
             MathDelimiter(open: "\\[", close: "\\]", display: true),
-            MathDelimiter(open: "\\(", close: "\\)", display: false),
-            MathDelimiter(open: "$", close: "$", display: false)
         ]
 
         var segments: [MessageSegment] = []
@@ -626,12 +624,7 @@ struct MessageBubble: View {
             let latex = rawLatex.trimmingCharacters(in: .whitespacesAndNewlines)
 
             if !latex.isEmpty {
-                if !startMatch.delimiter.display && startMatch.delimiter.open == "$" && !looksLikeInlineMath(latex) {
-                    let original = String(text[startMatch.range.lowerBound..<endRange.upperBound])
-                    segments.append(MessageSegment(kind: .markdown(original)))
-                } else {
-                    segments.append(MessageSegment(kind: .math(latex, display: startMatch.delimiter.display)))
-                }
+                segments.append(MessageSegment(kind: .math(latex, display: startMatch.delimiter.display)))
             }
             cursor = endRange.upperBound
         }
@@ -851,29 +844,6 @@ struct MessageBubble: View {
         return slashCount % 2 == 1
     }
 
-    private func looksLikeInlineMath(_ content: String) -> Bool {
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-
-        if trimmed.range(of: #"^\d[\d,.]*$"#, options: .regularExpression) != nil {
-            return false
-        }
-
-        if trimmed.contains("\\") { return true }
-        if trimmed.contains("^") || trimmed.contains("_") { return true }
-        if trimmed.contains("{") && trimmed.contains("}") { return true }
-
-        let words = trimmed.split(whereSeparator: { $0.isWhitespace })
-        if words.count > 8 { return false }
-
-        let hasDigits = trimmed.unicodeScalars.contains(where: { CharacterSet.decimalDigits.contains($0) })
-        let hasLetters = trimmed.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) })
-        if hasLetters && hasDigits { return true }
-        if hasLetters && words.count <= 3 && words.allSatisfy({ $0.count <= 5 }) { return true }
-
-        return false
-    }
-
 }
 
 private struct MathSegmentView: View {
@@ -985,11 +955,21 @@ private struct MarkdownMathText: UIViewRepresentable {
     private func makeAttributedText() -> NSAttributedString {
         let cleanText = MessageFormatting.normalizeNewlines(text.isEmpty ? " " : text)
         let normalizedMarkdown = MessageFormatting.normalizeMarkdown(cleanText)
-        let displayMarkdown = normalizedMarkdown.replacingOccurrences(of: "\\$", with: "$")
+        let escapedPlaceholder = "\u{FFFC}\u{200B}"
+        let preDisplay = normalizedMarkdown.replacingOccurrences(of: "\\$", with: escapedPlaceholder)
 
-        let mutable = buildStructuredAttributedText(from: displayMarkdown)
-        let fullRange = NSRange(location: 0, length: mutable.length)
+        let mutable = buildStructuredAttributedText(from: preDisplay)
         let textColor: UIColor = role == .user ? .white : .label
+        applyReadableTextSizing(to: mutable, delta: 0)
+        embedInlineMath(in: mutable, textColor: textColor)
+        let dollarPlaceholderRange = NSRange(location: 0, length: mutable.length)
+        let placeholderStr = mutable.string
+        if placeholderStr.contains(escapedPlaceholder) {
+            let nsMutable = mutable.mutableString
+            nsMutable.replaceOccurrences(of: escapedPlaceholder, with: "$", range: dollarPlaceholderRange)
+        }
+
+        let fullRange = NSRange(location: 0, length: mutable.length)
         mutable.enumerateAttribute(.foregroundColor, in: fullRange, options: []) { value, range, _ in
             if value == nil {
                 mutable.addAttribute(.foregroundColor, value: textColor, range: range)
@@ -999,8 +979,95 @@ private struct MarkdownMathText: UIViewRepresentable {
             mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)
         }
 
-        applyReadableTextSizing(to: mutable, delta: 0)
         return mutable
+    }
+
+    private func embedInlineMath(in mutable: NSMutableAttributedString, textColor: UIColor) {
+        let text = mutable.string
+        var replacements: [(range: NSRange, latex: String)] = []
+
+        let parenPattern = #"\\\((.+?)\\\)"#
+        if let regex = try? NSRegularExpression(pattern: parenPattern, options: []) {
+            let results = regex.matches(in: text, range: NSRange(location: 0, length: text.utf16.count))
+            for result in results where result.numberOfRanges > 1 {
+                let innerRange = result.range(at: 1)
+                let latex = (text as NSString).substring(with: innerRange)
+                replacements.append((result.range, latex))
+            }
+        }
+
+        let dollarPattern = #"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)"#
+        if let regex = try? NSRegularExpression(pattern: dollarPattern, options: []) {
+            let results = regex.matches(in: text, range: NSRange(location: 0, length: text.utf16.count))
+            for result in results where result.numberOfRanges > 1 {
+                let innerRange = result.range(at: 1)
+                let latex = (text as NSString).substring(with: innerRange)
+                if looksLikeInlineMath(latex) {
+                    let alreadyCovered = replacements.contains { existing in
+                        NSIntersectionRange(existing.range, result.range).length > 0
+                    }
+                    if !alreadyCovered {
+                        replacements.append((result.range, latex))
+                    }
+                }
+            }
+        }
+
+        replacements.sort { $0.range.location > $1.range.location }
+
+        let baseFontSize = UIFont.preferredFont(forTextStyle: .body).pointSize
+        for replacement in replacements {
+            guard let image = renderInlineMathImage(
+                latex: replacement.latex,
+                fontSize: baseFontSize,
+                textColor: textColor
+            ) else { continue }
+
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            let baselineFont = UIFont.preferredFont(forTextStyle: .body)
+            let yOffset = (baselineFont.capHeight - image.size.height) / 2.0
+            attachment.bounds = CGRect(x: 0, y: yOffset, width: image.size.width, height: image.size.height)
+
+            let attachmentString = NSAttributedString(attachment: attachment)
+            mutable.replaceCharacters(in: replacement.range, with: attachmentString)
+        }
+    }
+
+    private func renderInlineMathImage(latex: String, fontSize: CGFloat, textColor: UIColor) -> UIImage? {
+        let prepared = LaTeXPreprocessor.preprocess(latex)
+        let label = MTMathUILabel()
+        label.latex = prepared
+        label.font = MTFontManager().font(withName: MathFont.latinModernFont.rawValue, size: fontSize)
+        label.textColor = textColor
+        label.labelMode = .text
+        label.textAlignment = .left
+        label.backgroundColor = .clear
+
+        let size = label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+        guard size.width > 2, size.height > 2 else { return nil }
+        label.frame = CGRect(origin: .zero, size: size)
+
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { ctx in
+            label.layer.render(in: ctx.cgContext)
+        }
+    }
+
+    private func looksLikeInlineMath(_ content: String) -> Bool {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if trimmed.range(of: #"^\d[\d,.]*$"#, options: .regularExpression) != nil { return false }
+        if trimmed.contains("\\") { return true }
+        if trimmed.contains("^") || trimmed.contains("_") { return true }
+        if trimmed.contains("{") && trimmed.contains("}") { return true }
+        let words = trimmed.split(whereSeparator: \.isWhitespace)
+        if words.count > 8 { return false }
+        let hasDigits = trimmed.unicodeScalars.contains { CharacterSet.decimalDigits.contains($0) }
+        let hasLetters = trimmed.unicodeScalars.contains { CharacterSet.letters.contains($0) }
+        if hasLetters && hasDigits { return true }
+        if hasLetters && words.count <= 3 && words.allSatisfy({ $0.count <= 5 }) { return true }
+        return false
     }
 
     private func buildStructuredAttributedText(from markdown: String) -> NSMutableAttributedString {

@@ -421,30 +421,21 @@ class LLMEngine {
             : ""
 
         let tools = """
-        You have tools for files, memory, tasks, and reminders. When asked to perform these actions, call a tool — never describe what you would do instead.
+        You have tools. When asked to perform an action, call a tool immediately — never describe what you would do.
 
-        To call a tool, output:
+        EXACT format (you MUST use this XML wrapper):
         <tool_call>
         {"name": "TOOL_NAME", "arguments": {"key": "value"}}
         </tool_call>
 
-        File tools:
-        - create_file(path, content) — create or overwrite a file
-        - read_file(path) — read file contents
-        - list_files(directory) — list files; omit directory for root
+        File: create_file(path, content), read_file(path), list_files(directory)
+        Memory: create_memory(title, content), recall_memory(title?), list_memories(), search_memory(query)
+        Tasks: create_task(title, due?, details?), list_tasks(include_completed?), complete_task(title)
 
-        Memory tools:
-        - create_memory(title, content) — save a persistent note
-        - recall_memory(title?) — read a specific memory, or all if title omitted
-        - list_memories() — list all saved memories
-        - search_memory(query) — search through memory contents
-
-        Task tools:
-        - create_task(title, due?, details?) — create a task with optional notification; due can be "in 15 minutes", "tomorrow", or a date
-        - list_tasks(include_completed?) — list tasks
-        - complete_task(title) — mark a task as done
-
-        Never fabricate file contents, directory listings, or tool errors. Only report what tool output actually returns.
+        RULES:
+        - Always wrap tool calls in <tool_call>...</tool_call> tags with JSON inside.
+        - After a tool runs, you receive its output. Report ONLY what the tool returned — never invent details, addresses, or data.
+        - Keep your reply brief after a tool succeeds (e.g. "Done!" or a short confirmation).
         """
 
         let modePrompt = phoneMode.map { PhoneModePrompts.prompt(for: $0) } ?? ""
