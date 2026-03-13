@@ -64,7 +64,7 @@ struct ListEventsTool: Tool {
 
 struct OpenUrlTool: Tool {
     let name = "open_url"
-    let description = "Open a URL"
+    let description = "Open a URL. Use this to search Google (https://www.google.com/search?q=query) or YouTube (https://www.youtube.com/results?search_query=query)."
     let parameters = ["url"]
     let phoneModeManager: PhoneModeManager
 
@@ -76,7 +76,7 @@ struct OpenUrlTool: Tool {
 
 struct OpenMapsTool: Tool {
     let name = "open_maps"
-    let description = "Open Apple Maps with a query"
+    let description = "Open Apple Maps to search for places, businesses, or \"nearest X\" using a query."
     let parameters = ["query"]
     let phoneModeManager: PhoneModeManager
 

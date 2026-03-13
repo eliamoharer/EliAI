@@ -1,9 +1,9 @@
 import Foundation
 
-struct CreateTaskTool: Tool {
-    let name = "create_task"
-    let description = "Create a task"
-    let parameters = ["title", "due?", "details?"]
+struct ScheduleNotificationTool: Tool {
+    let name = "schedule_notification"
+    let description = "Schedule a push notification for a specific time"
+    let parameters = ["title", "due", "details?"]
     let taskManager: TaskManager
 
     func execute(arguments: [String: String]) async throws -> String {
@@ -11,13 +11,14 @@ struct CreateTaskTool: Tool {
         let details = arguments["details"] ?? ""
         let dueDateStr = arguments["due"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        let dueDate: Date?
-        if let value = dueDateStr, !value.isEmpty, value.lowercased() != "unscheduled" {
-            let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue)
-            let matches = detector?.matches(in: value, options: [], range: NSRange(location: 0, length: value.utf16.count))
-            dueDate = matches?.first?.date
-        } else {
-            dueDate = nil
+        guard let value = dueDateStr, !value.isEmpty, value.lowercased() != "unscheduled" else {
+            throw ToolError.missingArgument("due")
+        }
+        
+        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue)
+        let matches = detector?.matches(in: value, options: [], range: NSRange(location: 0, length: value.utf16.count))
+        guard let dueDate = matches?.first?.date else {
+            throw ToolError.invalidArgument("due", expected: "a valid natural language date or time")
         }
         
         let task = taskManager.addTask(title: title, details: details, dueDate: dueDate)
@@ -25,35 +26,35 @@ struct CreateTaskTool: Tool {
             let f = DateFormatter()
             f.dateStyle = .medium
             f.timeStyle = .short
-            return " (due: \(f.string(from: $0)))"
+            return " (scheduled for: \(f.string(from: $0)))"
         } ?? ""
-        AppLogger.info("Tool executed: create_task title=\(title)", category: .agent)
-        return "Task created: \(title)\(dueStr)"
+        AppLogger.info("Tool executed: schedule_notification title=\(title)", category: .agent)
+        return "Notification scheduled: \(title)\(dueStr)"
     }
 }
 
-struct ListTasksTool: Tool {
-    let name = "list_tasks"
-    let description = "List all tasks"
+struct ListNotificationsTool: Tool {
+    let name = "list_notifications"
+    let description = "List all scheduled notifications"
     let parameters = ["include_completed?"]
     let taskManager: TaskManager
 
     func execute(arguments: [String: String]) async throws -> String {
         let includeCompleted = arguments["include_completed"]?.lowercased() == "true"
-        AppLogger.info("Tool executed: list_tasks", category: .agent)
+        AppLogger.info("Tool executed: list_notifications", category: .agent)
         return taskManager.listTasks(includeCompleted: includeCompleted)
     }
 }
 
-struct CompleteTaskTool: Tool {
-    let name = "complete_task"
-    let description = "Complete a task by title"
+struct CancelNotificationTool: Tool {
+    let name = "cancel_notification"
+    let description = "Cancel a scheduled notification by title"
     let parameters = ["title"]
     let taskManager: TaskManager
 
     func execute(arguments: [String: String]) async throws -> String {
         guard let title = arguments["title"]?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else { throw ToolError.missingArgument("title") }
-        AppLogger.info("Tool executed: complete_task title=\(title)", category: .agent)
+        AppLogger.info("Tool executed: cancel_notification title=\(title)", category: .agent)
         return taskManager.completeTask(matching: title)
     }
 }

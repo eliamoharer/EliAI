@@ -3,6 +3,19 @@ import SwiftUI
 import SwiftMath
 import UIKit
 
+private extension NSAttributedString.Key {
+    static let inlineLatexSource = NSAttributedString.Key("EliInlineLatexSource")
+}
+
+private enum MathFont: String {
+    case latinModernFont = "latinmodern-math"
+    case kpMathLightFont = "kpmath-light"
+    case kpMathSansFont = "kpmath-sans"
+    case xitsFont = "xits-math"
+    case terminiFont = "termini-math"
+    case texGyreTermesFont = "texgyretermes-math"
+}
+
 private struct MessageSegment {
     enum Kind {
         case markdown(String)
@@ -20,6 +33,16 @@ private struct MathDelimiter {
     let close: String
     let display: Bool
 }
+
+class MathImageCache {
+    static let shared = NSCache<NSString, UIImage>()
+    
+    static func key(for latex: String, color: UIColor, fontSize: CGFloat) -> NSString {
+        // Encode color and size to ensure cache correctness
+        return "\(latex)|color:\(color.hash)|size:\(fontSize)" as NSString
+    }
+}
+
 
 struct ToolCallInfo: Identifiable, Equatable {
     let id = UUID()
@@ -135,8 +158,7 @@ struct MessageBubble: View {
                     }
                 }
 
-                if !cachedVisibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                    (message.role != .assistant && message.role != .tool) {
+                if !cachedVisibleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (message.role != .assistant && message.role != .tool) {
                     messageContent(segments: cachedSegments)
                         .frame(
                             minWidth: message.role == .user ? UIScreen.main.bounds.width * 0.48 : nil,
@@ -148,11 +170,6 @@ struct MessageBubble: View {
 
             if message.role != .user {
                 Spacer()
-            } else {
-                Image(systemName: "person.circle.fill")
-                    .resizable()
-                    .frame(width: 22, height: 22)
-                    .foregroundColor(.gray)
             }
         }
         .onAppear { loadContent() }
@@ -161,9 +178,7 @@ struct MessageBubble: View {
 
     private func loadContent() {
         let parsed = parseThinkingAndTools(from: message.content)
-        let visible = (message.role == .assistant || message.role == .tool)
-            ? parsed.visible
-            : message.content
+        let visible = message.role == .assistant ? parsed.visible : message.content
         
         if visible != cachedVisibleText || parsed.thinking != cachedThinking || parsed.tools != cachedToolCalls || parsed.toolOutputs != cachedToolOutputs {
             self.cachedVisibleText = visible
@@ -375,9 +390,8 @@ struct MessageBubble: View {
             }
             scanner = String(scanner[endRange.upperBound...])
         } else {
-            // Keep incomplete blocks visible until closing tag arrives.
-            visible += String(scanner[start.lowerBound...])
-            scanner = ""
+            // Unclosed, just hide header
+            scanner = String(scanner[contentStart...])
         }
     }
 
@@ -418,9 +432,8 @@ struct MessageBubble: View {
             } 
             scanner = String(scanner[endRange.upperBound...])
         } else {
-             // Keep incomplete blocks visible until closing tag arrives.
-             visible += String(scanner[start.lowerBound...])
-             scanner = ""
+             // Unclosed, just hide header
+             scanner = String(scanner[contentStart...])
         }
     }
     
@@ -584,21 +597,12 @@ struct MessageBubble: View {
             MathDelimiter(open: "\\begin{equation}", close: "\\end{equation}", display: true),
             MathDelimiter(open: "\\begin{align*}", close: "\\end{align*}", display: true),
             MathDelimiter(open: "\\begin{align}", close: "\\end{align}", display: true),
-            MathDelimiter(open: "\\begin{gather*}", close: "\\end{gather*}", display: true),
-            MathDelimiter(open: "\\begin{gather}", close: "\\end{gather}", display: true),
-            MathDelimiter(open: "\\begin{aligned}", close: "\\end{aligned}", display: true),
-            MathDelimiter(open: "\\begin{array}", close: "\\end{array}", display: true),
-            MathDelimiter(open: "\\begin{matrix}", close: "\\end{matrix}", display: true),
-            MathDelimiter(open: "\\begin{bmatrix}", close: "\\end{bmatrix}", display: true),
-            MathDelimiter(open: "\\begin{pmatrix}", close: "\\end{pmatrix}", display: true),
-            MathDelimiter(open: "\\begin{vmatrix}", close: "\\end{vmatrix}", display: true),
-            MathDelimiter(open: "\\begin{Vmatrix}", close: "\\end{Vmatrix}", display: true),
             MathDelimiter(open: "\\begin{multline*}", close: "\\end{multline*}", display: true),
             MathDelimiter(open: "\\begin{multline}", close: "\\end{multline}", display: true),
             MathDelimiter(open: "\\begin{cases*}", close: "\\end{cases*}", display: true),
             MathDelimiter(open: "\\begin{cases}", close: "\\end{cases}", display: true),
             MathDelimiter(open: "$$", close: "$$", display: true),
-            MathDelimiter(open: "\\[", close: "\\]", display: true),
+            MathDelimiter(open: "\\[", close: "\\]", display: true)
         ]
 
         var segments: [MessageSegment] = []
@@ -620,9 +624,7 @@ struct MessageBubble: View {
                 break
             }
 
-            let rawLatex = String(text[mathStart..<endRange.lowerBound])
-            let latex = rawLatex.trimmingCharacters(in: .whitespacesAndNewlines)
-
+            let latex = String(text[mathStart..<endRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
             if !latex.isEmpty {
                 segments.append(MessageSegment(kind: .math(latex, display: startMatch.delimiter.display)))
             }
@@ -761,20 +763,6 @@ struct MessageBubble: View {
                     continue
                 }
 
-                if delimiter.open == "$" {
-                    if text[range.lowerBound...].hasPrefix("$$") {
-                        searchStart = text.index(after: range.lowerBound)
-                        continue
-                    }
-                    if range.lowerBound > text.startIndex {
-                        let prev = text[text.index(before: range.lowerBound)]
-                        if prev.isNumber {
-                            searchStart = range.upperBound
-                            continue
-                        }
-                    }
-                }
-
                 if let currentBest = best {
                     if range.lowerBound < currentBest.range.lowerBound {
                         best = (range, delimiter)
@@ -802,18 +790,6 @@ struct MessageBubble: View {
                 searchStart = range.upperBound
                 continue
             }
-
-            if delimiter.close == "$" {
-                if text[range.lowerBound...].hasPrefix("$$") {
-                    searchStart = text.index(after: range.lowerBound)
-                    continue
-                }
-                let content = text[start..<range.lowerBound]
-                if content.contains("\n") {
-                    return nil
-                }
-            }
-
             return range
         }
 
@@ -842,22 +818,6 @@ struct MessageBubble: View {
         }
 
         return slashCount % 2 == 1
-    }
-
-    private func looksLikeInlineMath(_ content: String) -> Bool {
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        if trimmed.range(of: #"^\d[\d,.]*$"#, options: .regularExpression) != nil { return false }
-        if trimmed.contains("\\") { return true }
-        if trimmed.contains("^") || trimmed.contains("_") { return true }
-        if trimmed.contains("{") && trimmed.contains("}") { return true }
-        let words = trimmed.split(whereSeparator: { $0.isWhitespace })
-        if words.count > 8 { return false }
-        let hasDigits = trimmed.unicodeScalars.contains(where: { CharacterSet.decimalDigits.contains($0) })
-        let hasLetters = trimmed.unicodeScalars.contains(where: { CharacterSet.letters.contains($0) })
-        if hasLetters && hasDigits { return true }
-        if hasLetters && words.count <= 3 && words.allSatisfy({ $0.count <= 5 }) { return true }
-        return false
     }
 
 }
@@ -908,231 +868,132 @@ private struct MathSegmentView: View {
     }
 }
 
-private struct MarkdownMathText: UIViewRepresentable {
+private struct MarkdownMathText: View {
     let text: String
     let role: ChatMessage.Role
-    private static let orderedListRegex: NSRegularExpression = {
-        do {
-            return try NSRegularExpression(pattern: #"^(\s*)(\d+)\.\s+(.*)$"#)
-        } catch {
-            AppLogger.error("Failed to compile ordered list regex: \(error)", category: .ui)
-            // Return a regex that matches nothing as fallback
-            return try! NSRegularExpression(pattern: #"(?!.*)"#)
+    
+    var body: some View {
+        let cleanText = MessageFormatting.normalizeNewlines(text.isEmpty ? " " : text)
+        let extracted = MessageFormatting.extractInlineMathPlaceholders(from: cleanText)
+        let normalizedMarkdown = MessageFormatting.normalizeMarkdown(extracted.markdown)
+        
+        let lines = normalizedMarkdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                LineView(line: line, tokens: extracted.tokens, role: role)
+            }
         }
+    }
+}
+
+private struct InlineMathChunk: Identifiable {
+    let id = UUID()
+    let isMath: Bool
+    let text: String
+    let token: InlineMathToken?
+}
+
+private struct LineView: View {
+    let line: String
+    let tokens: [InlineMathToken]
+    let role: ChatMessage.Role
+    
+    private static let orderedListRegex: NSRegularExpression = {
+        return try! NSRegularExpression(pattern: #"^(\s*)(\d+)\.\s+(.*)$"#)
     }()
     
     private static let unorderedListRegex: NSRegularExpression = {
-        do {
-            return try NSRegularExpression(pattern: #"^(\s*)[-*+]\s+(.*)$"#)
-        } catch {
-            AppLogger.error("Failed to compile unordered list regex: \(error)", category: .ui)
-            return try! NSRegularExpression(pattern: #"(?!.*)"#)
-        }
+        return try! NSRegularExpression(pattern: #"^(\s*)[-*+]\s+(.*)$"#)
     }()
     
     private static let headingRegex: NSRegularExpression = {
-        do {
-            return try NSRegularExpression(pattern: #"^(#{1,6})\s+(.*)$"#)
-        } catch {
-            AppLogger.error("Failed to compile heading regex: \(error)", category: .ui)
-            return try! NSRegularExpression(pattern: #"(?!.*)"#)
-        }
+        return try! NSRegularExpression(pattern: #"^(#{1,6})\s+(.*)$"#)
     }()
 
-    func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
-        view.backgroundColor = .clear
-        view.isEditable = false
-        view.isScrollEnabled = false
-        view.isSelectable = true
-        view.font = .systemFont(ofSize: 17)
-        view.textContainerInset = .zero
-        view.textContainer.lineFragmentPadding = 0
-        view.textContainer.widthTracksTextView = true
-        view.setContentHuggingPriority(.required, for: .vertical)
-        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        view.setContentCompressionResistancePriority(.required, for: .vertical)
-        view.dataDetectorTypes = []
-        return view
-    }
-
-    func updateUIView(_ uiView: UITextView, context: Context) {
-        uiView.attributedText = makeAttributedText()
-        uiView.tintColor = .systemBlue
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
-        let proposedWidth = proposal.width ?? UIScreen.main.bounds.width
-        let width = proposedWidth.isFinite && proposedWidth > 0 ? proposedWidth : UIScreen.main.bounds.width
-        let measured = uiView.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
-        return CGSize(width: width, height: ceil(measured.height))
-    }
-
-    private func makeAttributedText() -> NSAttributedString {
-        let cleanText = MessageFormatting.normalizeNewlines(text.isEmpty ? " " : text)
-        let normalizedMarkdown = MessageFormatting.normalizeMarkdown(cleanText)
-        let escapedPlaceholder = "\u{2060}"
-        let preDisplay = normalizedMarkdown.replacingOccurrences(of: "\\$", with: escapedPlaceholder)
-
-        let mutable = buildStructuredAttributedText(from: preDisplay)
-        let textColor: UIColor = role == .user ? .white : .label
-        
-        applyReadableTextSizing(to: mutable, delta: 0)
-        embedInlineMath(in: mutable, textColor: textColor)
-        
-        let dollarPlaceholderRange = NSRange(location: 0, length: mutable.length)
-        let placeholderStr = mutable.string
-        if placeholderStr.contains(escapedPlaceholder) {
-            let nsMutable = mutable.mutableString
-            nsMutable.replaceOccurrences(of: escapedPlaceholder, with: "$", range: dollarPlaceholderRange)
-        }
-
-        let fullRange = NSRange(location: 0, length: mutable.length)
-        mutable.enumerateAttribute(.foregroundColor, in: fullRange, options: []) { value, range, _ in
-            if value == nil {
-                mutable.addAttribute(.foregroundColor, value: textColor, range: range)
-            }
-        }
-        if role == .user {
-            mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)
-        }
-
-        return mutable
-    }
-
-    private func embedInlineMath(in mutable: NSMutableAttributedString, textColor: UIColor) {
-        let text = mutable.string
-        
-        let pattern = #"(?<!\\)(?:\$(.*?)\$|\\\((.*?)\\\))"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return }
-        
-        let nsRange = NSRange(location: 0, length: mutable.length)
-        let matches = regex.matches(in: text, options: [], range: nsRange)
-        
-        for match in matches.reversed() {
-            let fullRange = match.range
-            var mathText = ""
-            
-            if match.range(at: 1).location != NSNotFound {
-                mathText = (text as NSString).substring(with: match.range(at: 1))
-            } else if match.range(at: 2).location != NSNotFound {
-                mathText = (text as NSString).substring(with: match.range(at: 2))
-            }
-            
-            mathText = mathText.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            if !mathText.isEmpty && looksLikeInlineMath(mathText) {
-                if let attachment = renderInlineMathImage(latex: mathText, textColor: textColor) {
-                    let attrString = NSAttributedString(attachment: attachment)
-                    mutable.replaceCharacters(in: fullRange, with: attrString)
-                }
-            }
-        }
-    }
-
-    private func looksLikeInlineMath(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty { return false }
-        
-        if trimmed.hasPrefix("\\") { return true }
-        if trimmed.contains("^") || trimmed.contains("_") || trimmed.contains("\\") { return true }
-        
-        let mathOperators = CharacterSet(charactersIn: "+-*/=<>{}[]()")
-        if trimmed.rangeOfCharacter(from: mathOperators) != nil { return true }
-        
-        let letters = CharacterSet.letters
-        let hasLetters = trimmed.rangeOfCharacter(from: letters) != nil
-        let digits = CharacterSet.decimalDigits
-        let hasDigits = trimmed.rangeOfCharacter(from: digits) != nil
-        
-        if hasLetters && hasDigits { return true }
-        if text.count > 2 && hasLetters { return true }
-        
-        return false
-    }
-
-    private func renderInlineMathImage(latex: String, textColor: UIColor) -> NSTextAttachment? {
-        let label = MTMathUILabel()
-        label.latex = latex
-        label.textColor = textColor
-        label.fontSize = 17
-        label.textAlignment = .left
-        label.labelMode = .text
-        
-        label.sizeToFit()
-        let size = label.bounds.size
-        
-        if size.width <= 0 || size.height <= 0 { return nil }
-        
-        let renderer = UIGraphicsImageRenderer(size: size)
-        let image = renderer.image { ctx in
-            label.layer.render(in: ctx.cgContext)
-            
-            // Fallback for sometimes-empty renders when view isn't in hierarchy
-            if let cgImage = ctx.currentImage.cgImage, cgImage.width == 0 || cgImage.height == 0 {
-                label.drawHierarchy(in: label.bounds, afterScreenUpdates: true)
-            }
-        }
-        
-        let attachment = NSTextAttachment()
-        attachment.image = image
-        
-        let font = UIFont.systemFont(ofSize: 17)
-        let mid = font.descender + font.capHeight
-        let yOffset = mid - size.height / 2.0
-        
-        attachment.bounds = CGRect(x: 0, y: yOffset, width: size.width, height: size.height)
-        
-        return attachment
-    }
-
-    private func buildStructuredAttributedText(from markdown: String) -> NSMutableAttributedString {
-        let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let output = NSMutableAttributedString()
-
-        for index in lines.indices {
-            let line = lines[index]
-            output.append(renderStructuredLine(line))
-            if index < lines.count - 1 {
-                output.append(NSAttributedString(string: "\n"))
-            }
-        }
-
-        return output
-    }
-
-    private func renderStructuredLine(_ line: String) -> NSAttributedString {
+    var body: some View {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty {
-            return NSAttributedString(string: "")
+            Text(" ")
+        } else if let ordered = parseOrderedListLine(line) {
+            HStack(alignment: .top, spacing: 6) {
+                Text("\(ordered.number).")
+                    .frame(width: 24, alignment: .trailing)
+                buildConcatenatedText(from: ordered.content)
+            }
+            .padding(.leading, CGFloat(ordered.indentLevel) * 18.0)
+        } else if let unordered = parseUnorderedListLine(line) {
+            HStack(alignment: .top, spacing: 6) {
+                Text("•")
+                    .frame(width: 16, alignment: .center)
+                buildConcatenatedText(from: unordered.content)
+            }
+            .padding(.leading, CGFloat(unordered.indentLevel) * 18.0)
+        } else if let heading = parseHeadingLine(line) {
+            buildConcatenatedText(from: heading.content)
+                .font(headingFont(for: heading.level))
+        } else {
+            buildConcatenatedText(from: line)
         }
-
-        if let ordered = parseOrderedListLine(line) {
-            return renderListLine(
-                prefix: "\(ordered.number). ",
-                content: ordered.content,
-                indentLevel: ordered.indentLevel
-            )
-        }
-
-        if let unordered = parseUnorderedListLine(line) {
-            return renderListLine(
-                prefix: "\u{2022} ",
-                content: unordered.content,
-                indentLevel: unordered.indentLevel
-            )
-        }
-
-        if let heading = parseHeadingLine(line) {
-            let headingText = inlineAttributedString(from: heading.content)
-            let mutable = NSMutableAttributedString(attributedString: headingText)
-            applyHeadingStyle(to: mutable, level: heading.level)
-            return mutable
-        }
-
-        return inlineAttributedString(from: line)
     }
-
+    
+    private func buildConcatenatedText(from content: String) -> Text {
+        let chunks = splitIntoChunks(content: content)
+        return chunks.reduce(Text("")) { result, chunk in
+            if chunk.isMath, let token = chunk.token {
+                let color = role == .user ? UIColor.white : UIColor.label
+                if let img = renderInlineMathImage(latex: token.latex, color: color, fontSize: 17) {
+                    let capHeight = UIFont.preferredFont(forTextStyle: .body).capHeight
+                    let offset = (capHeight - img.size.height) / 2.0
+                    return result + Text(Image(uiImage: img)).baselineOffset(offset)
+                } else {
+                    return result + Text("$\(token.latex)$")
+                }
+            } else {
+                let options = AttributedString.MarkdownParsingOptions(
+                    interpretedSyntax: .inlineOnlyPreservingWhitespace,
+                    failurePolicy: .returnPartiallyParsedIfPossible
+                )
+                let attr = (try? AttributedString(markdown: chunk.text, options: options)) ?? AttributedString(chunk.text)
+                return result + Text(attr)
+            }
+        }
+    }
+    
+    private func splitIntoChunks(content: String) -> [InlineMathChunk] {
+        var result: [InlineMathChunk] = []
+        var remaining = content
+        
+        while let nextMatch = nextPlaceholder(in: remaining) {
+            let leading = String(remaining[..<nextMatch.range.lowerBound])
+            if !leading.isEmpty {
+                result.append(InlineMathChunk(isMath: false, text: leading, token: nil))
+            }
+            
+            let idString = String(remaining[nextMatch.range])
+            if let token = tokens.first(where: { $0.placeholder == idString }) {
+                result.append(InlineMathChunk(isMath: true, text: "", token: token))
+            } else {
+                result.append(InlineMathChunk(isMath: false, text: idString, token: nil))
+            }
+            
+            remaining = String(remaining[nextMatch.range.upperBound...])
+        }
+        
+        if !remaining.isEmpty {
+            result.append(InlineMathChunk(isMath: false, text: remaining, token: nil))
+        }
+        
+        return result
+    }
+    
+    private func nextPlaceholder(in text: String) -> (range: Range<String.Index>, id: String)? {
+        if let range = text.range(of: #"ZZZMATHPLACEHOLDER\d+ZZZ"#, options: .regularExpression) {
+            return (range, String(text[range]))
+        }
+        return nil
+    }
+    
     private func parseOrderedListLine(_ line: String) -> (number: String, content: String, indentLevel: Int)? {
         let regex = Self.orderedListRegex
         let nsRange = NSRange(line.startIndex..<line.endIndex, in: line)
@@ -1143,7 +1004,6 @@ private struct MarkdownMathText: UIViewRepresentable {
               let contentRange = Range(match.range(at: 3), in: line) else {
             return nil
         }
-
         let indentLevel = max(0, line[indentRange].count / 2)
         return (String(line[numberRange]), String(line[contentRange]), indentLevel)
     }
@@ -1157,7 +1017,6 @@ private struct MarkdownMathText: UIViewRepresentable {
               let contentRange = Range(match.range(at: 2), in: line) else {
             return nil
         }
-
         let indentLevel = max(0, line[indentRange].count / 2)
         return (String(line[contentRange]), indentLevel)
     }
@@ -1171,46 +1030,11 @@ private struct MarkdownMathText: UIViewRepresentable {
               let contentRange = Range(match.range(at: 2), in: line) else {
             return nil
         }
-
         return (line[levelRange].count, String(line[contentRange]))
     }
-
-    private func renderListLine(prefix: String, content: String, indentLevel: Int) -> NSAttributedString {
-        let indentWidth = CGFloat(indentLevel) * 18.0
-        let listText = NSMutableAttributedString()
-        listText.append(NSAttributedString(string: String(repeating: " ", count: indentLevel * 2)))
-        listText.append(NSAttributedString(string: prefix))
-        
-        // Process content with inline math support - placeholders should be preserved
-        // Create attributed string from content (which may contain placeholders)
-        let contentAttributed = inlineAttributedString(from: content)
-        listText.append(contentAttributed)
-
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.firstLineHeadIndent = indentWidth
-        paragraphStyle.headIndent = indentWidth + 18.0
-        paragraphStyle.paragraphSpacing = 2
-        listText.addAttribute(
-            .paragraphStyle,
-            value: paragraphStyle,
-            range: NSRange(location: 0, length: listText.length)
-        )
-        return listText
-    }
-
-    private func inlineAttributedString(from markdownInline: String) -> NSAttributedString {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace,
-            failurePolicy: .returnPartiallyParsedIfPossible
-        )
-        if let attributed = try? AttributedString(markdown: markdownInline, options: options) {
-            return NSMutableAttributedString(attributed)
-        }
-        return NSMutableAttributedString(string: markdownInline)
-    }
-
-    private func applyHeadingStyle(to attributed: NSMutableAttributedString, level: Int) {
-        let base = UIFont.preferredFont(forTextStyle: .body).pointSize
+    
+    private func headingFont(for level: Int) -> Font {
+        let base: CGFloat = 17
         let bump: CGFloat
         switch level {
         case 1: bump = 8
@@ -1219,31 +1043,75 @@ private struct MarkdownMathText: UIViewRepresentable {
         case 4: bump = 3
         default: bump = 2
         }
-        let headingFont = UIFont.systemFont(ofSize: base + bump, weight: .semibold)
-        attributed.addAttribute(.font, value: headingFont, range: NSRange(location: 0, length: attributed.length))
+        return Font.system(size: base + bump, weight: .semibold)
+    }
+    
+    private func renderInlineMathImage(latex: String, color: UIColor, fontSize: CGFloat) -> UIImage? {
+        let cacheKey = MathImageCache.key(for: latex, color: color, fontSize: fontSize)
+        if let cached = MathImageCache.shared.object(forKey: cacheKey) {
+            return cached
+        }
+        
+        let label = MTMathUILabel()
+        label.backgroundColor = .clear
+        label.latex = LaTeXPreprocessor.preprocess(latex)
+        label.font = MTFontManager().font(withName: MathFont.latinModernFont.rawValue, size: fontSize)
+        label.labelMode = usesDisplayMathLayout(latex) ? .display : .text
+        label.textColor = color
+        label.textAlignment = .left
+        label.contentInsets = MTEdgeInsets(top: 1, left: 0, bottom: 1, right: 0)
+
+        let measured = label.sizeThatFits(
+            CGSize(
+                width: AppConstants.LaTeX.maxRenderSize,
+                height: AppConstants.LaTeX.maxRenderSize
+            )
+        )
+        
+        if !measured.width.isFinite || !measured.height.isFinite || measured.width == 0 || measured.height == 0 {
+            return nil
+        }
+        
+        let width = max(AppConstants.LaTeX.fallbackImageMinSize, ceil(measured.width))
+        let height = max(ceil(fontSize * 1.2), ceil(measured.height))
+        let renderSize = CGSize(width: width, height: height)
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        format.scale = UIScreen.main.scale
+        let renderer = UIGraphicsImageRenderer(size: renderSize, format: format)
+
+        let image = renderer.image { context in
+            label.frame = CGRect(
+                x: 0,
+                y: max(0, (renderSize.height - measured.height) / 2),
+                width: width,
+                height: measured.height
+            )
+            label.setNeedsLayout()
+            label.layoutIfNeeded()
+            label.layer.render(in: context.cgContext)
+        }
+        
+        MathImageCache.shared.setObject(image, forKey: cacheKey)
+        return image
     }
 
-    private func applyReadableTextSizing(to mutable: NSMutableAttributedString, delta: CGFloat) {
-        let fullRange = NSRange(location: 0, length: mutable.length)
-        guard fullRange.length > 0 else {
-            return
+    private func usesDisplayMathLayout(_ latex: String) -> Bool {
+        let normalized = latex.replacingOccurrences(of: " ", with: "")
+        if normalized.contains("\\begin{cases}") || normalized.contains("\\begin{cases*}") {
+            return true
         }
-
-        let baseBodyFont = UIFont.preferredFont(forTextStyle: .body)
-        var updates: [(NSRange, UIFont)] = []
-        mutable.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
-            if let font = value as? UIFont {
-                updates.append((range, font.withSize(font.pointSize + delta)))
-            } else {
-                updates.append((range, baseBodyFont.withSize(baseBodyFont.pointSize + delta)))
-            }
+        if normalized.contains("\\begin{aligned}") || normalized.contains("\\begin{matrix}") {
+            return true
         }
-
-        for (range, font) in updates {
-            mutable.addAttribute(.font, value: font, range: range)
+        if normalized.contains("\\\\") {
+            return true
         }
+        return false
     }
 }
+
 
 private struct LaTeXMathLabel: UIViewRepresentable {
     // Native renderer from SwiftMath; no web assets or network needed at runtime.

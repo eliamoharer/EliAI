@@ -407,7 +407,7 @@ class LLMEngine {
             : ""
 
         let tools = """
-        You have tools available to you. When asked to perform an action that a tool handles, call a tool immediately — never describe what you would do.
+        You have tools available to you. ONLY use tools when necessary to perform an action or retrieve information you don't already have. Do NOT use tools for general conversation, math, or simple questions you can answer yourself. When asked to perform an action that a tool handles, call a tool immediately — never describe what you would do.
 
         EXACT format (you MUST use this XML wrapper):
         <tool_call>
