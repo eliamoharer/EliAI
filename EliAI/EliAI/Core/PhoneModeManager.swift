@@ -58,8 +58,12 @@ class PhoneModeManager {
     }
 
     func requestHealthAccess() async -> Bool {
-        guard let healthStore else {
+        guard HKHealthStore.isHealthDataAvailable() else {
             AppLogger.error("HealthKit not available on this device", category: .agent)
+            return false
+        }
+        guard let healthStore else {
+            AppLogger.error("HealthKit store not initialized", category: .agent)
             return false
         }
 
@@ -74,15 +78,20 @@ class PhoneModeManager {
         do {
             try await healthStore.requestAuthorization(toShare: writeTypes, read: [])
         } catch {
-            AppLogger.error("HealthKit access error: \(error.localizedDescription)", category: .agent)
+            AppLogger.error("HealthKit authorization error: \(error.localizedDescription)", category: .agent)
             return false
         }
 
-        let anyAuthorized = writeTypes.contains { type in
-            healthStore.authorizationStatus(for: type) == .sharingAuthorized
+        var authorized = false
+        for type in writeTypes {
+            let status = healthStore.authorizationStatus(for: type)
+            AppLogger.info("HealthKit auth status for \(type.identifier): \(status.rawValue)", category: .agent)
+            if status == .sharingAuthorized {
+                authorized = true
+            }
         }
-        await MainActor.run { healthAuthorized = anyAuthorized }
-        return anyAuthorized
+        await MainActor.run { healthAuthorized = authorized }
+        return authorized
     }
 
     func preauthorize(for mode: PhoneMode) async {
@@ -158,7 +167,7 @@ class PhoneModeManager {
 
     func logWater(amountML: Double) async -> String {
         guard await requestHealthAccess(), let healthStore else {
-            return "Error: Health access denied or HealthKit unavailable. Please allow in Settings > Privacy > Health."
+            return "Error: Health access denied. Go to Settings > Privacy & Security > Health > EliAI and enable all categories. If EliAI doesn't appear there, the HealthKit entitlement may need to be configured in your Apple Developer account."
         }
 
         guard let waterType = HKQuantityType.quantityType(forIdentifier: .dietaryWater) else {
@@ -179,7 +188,7 @@ class PhoneModeManager {
 
     func logSleep(startTime: String, endTime: String, quality: String?) async -> String {
         guard await requestHealthAccess(), let healthStore else {
-            return "Error: Health access denied or HealthKit unavailable."
+            return "Error: Health access denied. Go to Settings > Privacy & Security > Health > EliAI to enable."
         }
 
         guard let sleepType = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else {
@@ -216,7 +225,7 @@ class PhoneModeManager {
 
     func logCaffeine(amountMG: Double) async -> String {
         guard await requestHealthAccess(), let healthStore else {
-            return "Error: Health access denied or HealthKit unavailable."
+            return "Error: Health access denied. Go to Settings > Privacy & Security > Health > EliAI to enable."
         }
 
         guard let caffeineType = HKQuantityType.quantityType(forIdentifier: .dietaryCaffeine) else {
@@ -237,7 +246,7 @@ class PhoneModeManager {
 
     func logSteps(count: Int) async -> String {
         guard await requestHealthAccess(), let healthStore else {
-            return "Error: Health access denied or HealthKit unavailable."
+            return "Error: Health access denied. Go to Settings > Privacy & Security > Health > EliAI to enable."
         }
 
         guard let stepType = HKQuantityType.quantityType(forIdentifier: .stepCount) else {

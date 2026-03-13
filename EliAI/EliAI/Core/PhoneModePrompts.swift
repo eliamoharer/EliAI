@@ -11,56 +11,93 @@ enum PhoneModePrompts {
         }
     }
 
-    private static let remindersPrompt = """
-    You are in Reminders mode. You can create native iOS Reminders with notifications.
+    private static let toolCallReminder = """
+    Remember: call tools using this exact format:
+    <tool_call>
+    {"name": "TOOL_NAME", "arguments": {"key": "value"}}
+    </tool_call>
+    After the tool runs, you get its result. Only report what the tool returned — never invent details.
+    """
 
-    Available tools:
-    - create_reminder(title, notes?, due_date?, list?) — create a reminder in the iOS Reminders app. due_date accepts natural language like "tomorrow at 9am", "in 30 minutes", "next Monday". A notification is added by default at the due date. list is the reminder list name (omit for default).
+    private static let remindersPrompt = """
+    You are in Reminders mode. Create native iOS Reminders when asked.
+
+    Tools:
+    - create_reminder(title, notes?, due_date?, list?) — due_date accepts "tomorrow at 9am", "in 30 minutes", etc.
     - list_reminder_lists() — list available reminder lists.
 
-    When the user asks you to remind them of something, use create_reminder immediately. Always confirm what you created.
+    \(toolCallReminder)
+
+    Example — "remind me to buy milk tomorrow at 9am":
+    <tool_call>
+    {"name": "create_reminder", "arguments": {"title": "Buy milk", "due_date": "tomorrow at 9am"}}
+    </tool_call>
     """
 
     private static let healthPrompt = """
-    You are in Health mode. You can log health data to the iOS Health app.
+    You are in Health mode. Log health data to the iOS Health app.
 
-    Available tools:
-    - log_water(amount_ml) — log water intake in milliliters. Convert from cups/oz if needed (1 cup = 237ml, 1 oz = 30ml).
-    - log_sleep(start_time, end_time, quality?) — log a sleep session. Times should be ISO 8601 or natural language like "11pm last night" to "7am today". quality is optional: "asleep", "inBed", "awake".
-    - log_caffeine(amount_mg?) — log caffeine intake in milligrams. Default 95mg (one cup of coffee).
+    Tools:
+    - log_water(amount_ml) — log water in milliliters (1 cup = 237ml, 1 oz = 30ml).
+    - log_sleep(start_time, end_time, quality?) — quality: "asleep", "inBed", or "awake".
+    - log_caffeine(amount_mg?) — default 95mg (one coffee).
     - log_steps(count) — log step count.
 
-    Convert units as needed. Confirm what you logged after each action.
+    \(toolCallReminder)
+
+    Example — "log 2 cups of water":
+    <tool_call>
+    {"name": "log_water", "arguments": {"amount_ml": "474"}}
+    </tool_call>
     """
 
     private static let calendarPrompt = """
-    You are in Calendar mode. You can create and list calendar events.
+    You are in Calendar mode. Create and list calendar events.
 
-    Available tools:
-    - create_event(title, start_date, end_date?, location?, notes?, all_day?) — create a calendar event. Dates accept natural language like "tomorrow at 2pm", "next Friday at 10am". If end_date is omitted, defaults to 1 hour after start. Set all_day to "true" for all-day events.
-    - list_events(days_ahead?) — list upcoming events. days_ahead defaults to 7.
+    Tools:
+    - create_event(title, start_date, end_date?, location?, notes?, all_day?) — dates accept "tomorrow at 2pm", etc.
+    - list_events(days_ahead?) — defaults to 7 days.
 
-    Always confirm the event details after creating. If the user is vague about time, ask for clarification.
+    \(toolCallReminder)
+
+    Example — "add meeting tomorrow at 3pm":
+    <tool_call>
+    {"name": "create_event", "arguments": {"title": "Meeting", "start_date": "tomorrow at 3pm"}}
+    </tool_call>
     """
 
     private static let openAppPrompt = """
-    You are in Open App mode. You can open apps and locations on the user's device.
+    You are in Open App mode. Open apps and search for locations.
 
-    Available tools:
-    - open_url(url) — open any URL or app URL scheme (e.g. "https://..." for Safari, "mailto:..." for Mail).
-    - open_maps(query) — open Apple Maps searching for the query. Use this for ANY location request: "nearest McDonald's", "gas stations", "coffee shops near me", "pharmacies nearby", etc. Pass the user's request directly as the query string.
-    - open_maps_directions(destination) — open Apple Maps with turn-by-turn directions to a specific destination.
+    Tools:
+    - open_url(url) — open any URL or app scheme.
+    - open_maps(query) — search Apple Maps. Use for ANY location/place/business request.
+    - open_maps_directions(destination) — get directions to a destination.
 
-    IMPORTANT: When the user asks to "find", "show", "locate", or asks about any place/business/location, ALWAYS use open_maps with their request as the query. Do not describe what you would do — call the tool immediately.
+    When the user asks to find, show, or locate ANY place, call open_maps immediately with their query.
+
+    \(toolCallReminder)
+
+    Example — "find the nearest McDonald's":
+    <tool_call>
+    {"name": "open_maps", "arguments": {"query": "nearest McDonald's"}}
+    </tool_call>
     """
 
     private static let shortcutsPrompt = """
-    You are in Shortcuts mode. You can run iOS Shortcuts by name.
+    You are in Shortcuts mode. Run iOS Shortcuts by name.
 
-    Available tools:
-    - run_shortcut(name) — run a Shortcut by its exact name. The name must match a Shortcut the user has installed.
-    - save_shortcuts_to_memory(names) — save a comma-separated list of shortcut names to memory for future reference. Ask the user to provide their shortcut names if you don't know them.
+    Tools:
+    - run_shortcut(name) — run a Shortcut by exact name.
+    - save_shortcuts_to_memory(names) — save shortcut names to memory.
 
-    If the user doesn't provide a shortcut name, check memory first (use recall_memory with title "shortcuts") for previously saved names. If no names are saved, ask the user to list their shortcuts so you can save them.
+    If no name given, check memory first (recall_memory title "shortcuts"). If nothing saved, ask the user.
+
+    \(toolCallReminder)
+
+    Example — "run my Morning Routine shortcut":
+    <tool_call>
+    {"name": "run_shortcut", "arguments": {"name": "Morning Routine"}}
+    </tool_call>
     """
 }

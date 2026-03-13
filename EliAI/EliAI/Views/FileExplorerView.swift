@@ -71,7 +71,7 @@ struct FileExplorerView: View {
                         .listRowBackground(Color.clear)
                 }
             }
-            .navigationTitle("EliAI")
+            .navigationTitle("")
             .listStyle(SidebarListStyle())
             .scrollContentBackground(.hidden)
             .background(Color.clear)

@@ -57,6 +57,7 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             topGrabber
+            headerSection
             messagesSection
             inputSection
         }
@@ -85,19 +86,23 @@ struct ChatView: View {
     }
 
     private var topGrabber: some View {
+        Capsule()
+            .fill(Color.primary.opacity(0.22))
+            .frame(width: isCollapsed ? 56 : 42, height: 5)
+            .padding(.top, isCollapsed ? 10 : 8)
+            .padding(.bottom, isCollapsed ? 8 : 6)
+    }
+
+    private var headerSection: some View {
         HStack {
+            Text(chatManager.currentSession?.title ?? "EliAI")
+                .font(.headline)
+                .fontWeight(.bold)
             Spacer()
-            Capsule()
-                .fill(Color.primary.opacity(0.22))
-                .frame(width: isCollapsed ? 56 : 42, height: 5)
-            Spacer()
-        }
-        .overlay(alignment: .trailing) {
             headerTrailing
-                .padding(.trailing, 16)
         }
-        .padding(.top, isCollapsed ? 10 : 8)
-        .padding(.bottom, isCollapsed ? 8 : 6)
+        .padding(.horizontal, 16)
+        .padding(.vertical, isCollapsed ? 10 : 16)
     }
 
     @ViewBuilder
@@ -799,6 +804,26 @@ struct ChatView: View {
             return true
         }
 
+        if let mode = activePhoneMode {
+            switch mode {
+            case .openApp:
+                let locationWords = ["find", "nearest", "near me", "close to", "where is", "show me", "directions", "navigate", "open"]
+                if locationWords.contains(where: { text.contains($0) }) { return true }
+            case .reminders:
+                let reminderWords = ["remind", "reminder", "create", "add", "set", "list"]
+                if reminderWords.contains(where: { text.contains($0) }) { return true }
+            case .health:
+                let healthWords = ["log", "track", "record", "add", "drank", "slept", "water", "coffee", "sleep", "steps", "walked"]
+                if healthWords.contains(where: { text.contains($0) }) { return true }
+            case .calendar:
+                let calWords = ["event", "meeting", "schedule", "appointment", "add", "create", "list", "upcoming"]
+                if calWords.contains(where: { text.contains($0) }) { return true }
+            case .shortcuts:
+                let shortcutWords = ["run", "execute", "launch", "shortcut", "save", "list"]
+                if shortcutWords.contains(where: { text.contains($0) }) { return true }
+            }
+        }
+
         let actions = [
             "create", "write", "save", "store", "read", "open", "list",
             "show", "delete", "remove", "append", "update", "recall",
@@ -829,10 +854,8 @@ struct ChatView: View {
             knownTools.append(contentsOf: mode.toolNames)
         }
         let lowered = response.lowercased()
-        for tool in knownTools {
-            if lowered.contains(tool) {
-                return true
-            }
+        if lowered.contains("\"name\"") && knownTools.contains(where: { lowered.contains($0) }) {
+            return true
         }
         return false
     }

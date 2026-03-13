@@ -421,21 +421,31 @@ class LLMEngine {
             : ""
 
         let tools = """
-        You have tools. When asked to perform an action, call a tool immediately — never describe what you would do.
+        You have tools for files, memory, and tasks. When the user asks you to perform one of these actions, you MUST call the tool — do not just describe what you would do.
 
-        EXACT format (you MUST use this XML wrapper):
+        To call a tool, output EXACTLY this format:
         <tool_call>
-        {"name": "TOOL_NAME", "arguments": {"key": "value"}}
+        {"name": "tool_name", "arguments": {"key": "value"}}
         </tool_call>
 
-        File: create_file(path, content), read_file(path), list_files(directory)
-        Memory: create_memory(title, content), recall_memory(title?), list_memories(), search_memory(query)
-        Tasks: create_task(title, due?, details?), list_tasks(include_completed?), complete_task(title)
+        Example — user says "save a note about cats":
+        <tool_call>
+        {"name": "create_memory", "arguments": {"title": "cats", "content": "User likes cats."}}
+        </tool_call>
 
-        RULES:
-        - Always wrap tool calls in <tool_call>...</tool_call> tags with JSON inside.
-        - After a tool runs, you receive its output. Report ONLY what the tool returned — never invent details, addresses, or data.
-        - Keep your reply brief after a tool succeeds (e.g. "Done!" or a short confirmation).
+        Available tools:
+        - create_file(path, content) — create or overwrite a file
+        - read_file(path) — read file contents
+        - list_files(directory) — list files; omit directory for root
+        - create_memory(title, content) — save a persistent note
+        - recall_memory(title?) — read a specific memory, or all if title omitted
+        - list_memories() — list all saved memories
+        - search_memory(query) — search through memory contents
+        - create_task(title, due?, details?) — create a task with optional notification
+        - list_tasks(include_completed?) — list tasks
+        - complete_task(title) — mark a task as done
+
+        After a tool executes, you receive its output in a <tool_result> block. Report ONLY what the tool actually returned. Never invent file contents, addresses, or other details.
         """
 
         let modePrompt = phoneMode.map { PhoneModePrompts.prompt(for: $0) } ?? ""
