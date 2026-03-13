@@ -3,12 +3,10 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct ChatView: View {
-    @Environment(ChatManager.self) var chatManager
-    @Environment(LLMEngine.self) var llmEngine
-    @Environment(AgentManager.self) var agentManager
-    @Environment(ModelDownloader.self) var modelDownloader
-    @Environment(ChatCoordinator.self) var chatCoordinator
-    
+    var chatManager: ChatManager
+    var llmEngine: LLMEngine
+    var agentManager: AgentManager
+    var modelDownloader: ModelDownloader
     var onShowSettings: () -> Void = {}
     var isCollapsed: Bool = false
     @Environment(\.colorScheme) private var colorScheme
@@ -18,6 +16,7 @@ struct ChatView: View {
     @State private var showFileImporter = false
     @State private var keyboardOverlap: CGFloat = 0
     @State private var scrollRequestID: Int = 0
+    @State private var isAgentLoopRunning = false
     @State var activePhoneMode: PhoneMode? = nil
     @State private var showModeMenu = false
     private let bottomAnchorID = "chatBottomAnchor"
@@ -32,11 +31,11 @@ struct ChatView: View {
             llmEngine.isLoaded &&
             !llmEngine.isGenerating &&
             !llmEngine.isLoadingModel &&
-            !chatCoordinator.isAgentLoopRunning
+            !isAgentLoopRunning
     }
 
     private var canStopGeneration: Bool {
-        llmEngine.isGenerating || chatCoordinator.isAgentLoopRunning
+        llmEngine.isGenerating || isAgentLoopRunning
     }
 
     private var composerButtonEnabled: Bool {
@@ -51,7 +50,7 @@ struct ChatView: View {
         return llmEngine.isLoaded &&
             !llmEngine.isGenerating &&
             !llmEngine.isLoadingModel &&
-            !chatCoordinator.isAgentLoopRunning &&
+            !isAgentLoopRunning &&
             messages.contains(where: { $0.role == .user })
     }
 
@@ -194,7 +193,6 @@ struct ChatView: View {
             Button {
                 llmEngine.stopGeneration()
                 chatManager.createNewSession()
-                activePhoneMode = nil
             } label: {
                 Label("New Chat", systemImage: "plus.message")
             }
@@ -209,7 +207,6 @@ struct ChatView: View {
             Button(role: .destructive) {
                 llmEngine.stopGeneration()
                 chatManager.clearCurrentSession()
-                activePhoneMode = nil
             } label: {
                 Label("Clear Current Chat", systemImage: "trash")
             }
@@ -449,7 +446,7 @@ struct ChatView: View {
     @ViewBuilder
     private func composerTextField(modeColor: Color?, hasMode: Bool) -> some View {
         let strokeColor: Color = hasMode ? modeColor!.opacity(0.5) : Color.white.opacity(0.35)
-        let isDisabled = !llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel || chatCoordinator.isAgentLoopRunning
+        let isDisabled = !llmEngine.isLoaded || llmEngine.isGenerating || llmEngine.isLoadingModel || isAgentLoopRunning
 
         TextField("Message...", text: $inputText, axis: .vertical)
             .focused($isInputFocused)
@@ -527,9 +524,6 @@ struct ChatView: View {
                 activePhoneMode = mode
                 showModeMenu = false
             }
-            Task {
-                await agentManager.phoneModeManager.preauthorize(for: mode)
-            }
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: mode.iconName)
@@ -580,21 +574,30 @@ struct ChatView: View {
 
     private func sendMessage() {
         let trimmedInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedInput.isEmpty, !chatCoordinator.isAgentLoopRunning else { return }
+        guard !trimmedInput.isEmpty, !isAgentLoopRunning else { return }
         AppLogger.debug("User message submitted.", category: .ui)
 
-        let input = inputText
+        if chatManager.currentSession == nil {
+            chatManager.createNewSession()
+        }
+
+        let userMessage = ChatMessage(role: .user, content: trimmedInput)
+        chatManager.addMessage(userMessage)
         inputText = ""
         scrollRequestID &+= 1
+        isAgentLoopRunning = true
 
         Task {
-            await chatCoordinator.sendMessage(input, phoneMode: activePhoneMode)
+            await runAgentLoop()
+            await MainActor.run {
+                isAgentLoopRunning = false
+            }
         }
     }
 
     private func handleComposerPrimaryAction() {
         if canStopGeneration {
-            chatCoordinator.stopGeneration()
+            llmEngine.stopGeneration()
             return
         }
         sendMessage()
@@ -602,12 +605,177 @@ struct ChatView: View {
 
     private func regenerateLastReply() {
         guard canRegenerateLastReply else { return }
+        guard let session = chatManager.currentSession,
+              let lastUserIndex = session.messages.lastIndex(where: { $0.role == .user }) else {
+            return
+        }
 
         AppLogger.info("Regenerating assistant reply from last user prompt.", category: .ui)
+        llmEngine.stopGeneration()
+        chatManager.trimCurrentSession(upToIncluding: lastUserIndex)
         scrollRequestID &+= 1
+        isAgentLoopRunning = true
 
         Task {
-            await chatCoordinator.regenerateLastReply(phoneMode: activePhoneMode)
+            await runAgentLoop()
+            await MainActor.run {
+                isAgentLoopRunning = false
+            }
+        }
+    }
+
+    private func runAgentLoop() async {
+        var keepGenerating = true
+        var steps = 0
+        let maxSteps = AppConstants.AgentLoop.maxSteps
+        var recoveryAttempts = 0
+        var enforcedToolRetryUsed = false
+        var forceToolCallNextStep = false
+
+        while keepGenerating && steps < maxSteps {
+            steps += 1
+            keepGenerating = false
+
+            var fullResponse = ""
+            var assistantMessage = ChatMessage(role: .assistant, content: "")
+            chatManager.addMessage(assistantMessage)
+
+            var history = Array(chatManager.currentSession?.messages.dropLast() ?? ArraySlice<ChatMessage>())
+            let latestUserPrompt = history.last(where: { $0.role == .user })?.content ?? ""
+            let hasToolResultAfterLatestUser = hasToolOutputAfterLatestUser(in: history)
+
+            // Inject a nudge into history instead of replacing the system prompt,
+            // so the model still sees full tool definitions.
+            if forceToolCallNextStep {
+                history.append(ChatMessage(
+                    role: .system,
+                    content: "You MUST respond with a <tool_call> block for this request."
+                ))
+            }
+            let stream = llmEngine.generate(messages: history, phoneMode: activePhoneMode)
+            forceToolCallNextStep = false
+
+            for await token in stream {
+                fullResponse += token
+                await MainActor.run {
+                    assistantMessage.content = fullResponse
+                    chatManager.updateLastMessage(assistantMessage, persist: false)
+                }
+            }
+
+            if !fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let error = llmEngine.generationError,
+               shouldAttemptModelRecovery(for: error),
+               recoveryAttempts < AppConstants.LLMEngine.maxRecoveryAttempts {
+                recoveryAttempts += 1
+                AppLogger.warning(
+                    "Partial generation ended with recoverable error. Reloading model (attempt \(recoveryAttempts)/\(AppConstants.LLMEngine.maxRecoveryAttempts))...",
+                    category: .inference
+                )
+
+                let recovered = await llmEngine.reloadCurrentModel()
+                if recovered {
+                    await MainActor.run {
+                        llmEngine.generationError = nil
+                        chatManager.removeMessage(id: assistantMessage.id)
+                    }
+                    keepGenerating = true
+                    continue
+                }
+            }
+
+            if fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if llmEngine.lastGenerationWasCancelled {
+                    await MainActor.run {
+                        AppLogger.debug("Generation ended with cancellation; removing empty assistant placeholder.", category: .inference)
+                        chatManager.removeMessage(id: assistantMessage.id)
+                    }
+                    break
+                }
+
+                // Attempt recovery if model error detected
+                if let error = llmEngine.generationError, 
+                   shouldAttemptModelRecovery(for: error),
+                   recoveryAttempts < AppConstants.LLMEngine.maxRecoveryAttempts {
+                    recoveryAttempts += 1
+                    await MainActor.run {
+                        chatManager.removeMessage(id: assistantMessage.id)
+                    }
+                    AppLogger.warning("Generation error detected. Reloading model (attempt \(recoveryAttempts)/\(AppConstants.LLMEngine.maxRecoveryAttempts))...", category: .inference)
+
+                    let recovered = await llmEngine.reloadCurrentModel()
+
+                    if recovered {
+                        // Clear error state before retry
+                        await MainActor.run {
+                            llmEngine.generationError = nil
+                        }
+                        keepGenerating = true
+                        continue
+                    } else {
+                        AppLogger.error("Model recovery failed. Reload did not succeed.", category: .inference)
+                    }
+                }
+
+                // If we've exhausted recovery attempts or no error was detected, show error message
+                let fallbackMessage = llmEngine.generationError?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? (llmEngine.generationError ?? "I couldn't generate a response. Please try again.")
+                    : "I couldn't generate a response. Please try again."
+
+                await MainActor.run {
+                    AppLogger.error(
+                        "Generation produced empty output. error=\(llmEngine.generationError ?? "nil"), recoveryAttempts=\(recoveryAttempts)",
+                        category: .inference
+                    )
+                    assistantMessage.content = fallbackMessage
+                    chatManager.updateLastMessage(assistantMessage)
+                }
+            } else {
+                // Success - reset recovery attempts
+                recoveryAttempts = 0
+                var finalResponse = fullResponse
+                if let error = llmEngine.generationError,
+                   shouldAttemptModelRecovery(for: error) {
+                    finalResponse += "\n\n[Response may be incomplete: \(error)]"
+                }
+                await MainActor.run {
+                    assistantMessage.content = finalResponse
+                    chatManager.updateLastMessage(assistantMessage)
+                }
+            }
+
+            let toolOutput = await agentManager.processToolCalls(in: fullResponse)
+            if toolOutput == nil,
+               !enforcedToolRetryUsed,
+               !hasToolResultAfterLatestUser,
+               requiresToolCall(for: latestUserPrompt),
+               !containsToolInvocation(in: fullResponse) {
+                enforcedToolRetryUsed = true
+                forceToolCallNextStep = true
+                await MainActor.run {
+                    chatManager.removeMessage(id: assistantMessage.id)
+                }
+                keepGenerating = true
+                continue
+            }
+
+            if let toolOutput {
+                let toolMessage = ChatMessage(role: .tool, content: toolOutput)
+                chatManager.addMessage(toolMessage)
+                keepGenerating = true
+            }
+
+            if let session = chatManager.currentSession {
+                chatManager.saveSession(session)
+            }
+        }
+
+        if steps >= maxSteps {
+            let warning = ChatMessage(
+                role: .system,
+                content: "Agent loop reached safety step limit. Please continue with a follow-up prompt."
+            )
+            chatManager.addMessage(warning)
         }
     }
 
@@ -616,6 +784,52 @@ struct ChatView: View {
         return normalized.contains("timeout") ||
             normalized.contains("unresponsive") ||
             normalized.contains("no output")
+    }
+
+    private func requiresToolCall(for userPrompt: String) -> Bool {
+        let text = userPrompt.lowercased()
+
+        if activePhoneMode != nil {
+            return true
+        }
+
+        let actions = [
+            "create", "write", "save", "store", "read", "open", "list",
+            "show", "delete", "remove", "append", "update", "recall",
+            "remember", "search", "find", "remind", "set reminder",
+            "schedule", "complete", "finish", "done", "log", "run", "launch"
+        ]
+        let targets = [
+            "file", "files", "folder", "directory", "memory", "memories",
+            "task", "tasks", "note", "notes", "reminder", "reminders",
+            "event", "calendar", "shortcut", "shortcuts", "water", "sleep",
+            "caffeine", "steps", "health", "maps", "directions"
+        ]
+
+        let hasAction = actions.contains(where: { text.contains($0) })
+        let hasTarget = targets.contains(where: { text.contains($0) })
+
+        if text.contains("remind me") || text.contains("set a reminder") || text.contains("set reminder") {
+            return true
+        }
+
+        return hasAction && hasTarget
+    }
+
+    private func containsToolInvocation(in response: String) -> Bool {
+        let lowered = response.lowercased()
+        if lowered.contains("<tool_call>") {
+            return true
+        }
+        var knownTools = [
+            "create_file", "read_file", "list_files",
+            "create_memory", "recall_memory", "list_memories", "search_memory",
+            "create_task", "list_tasks", "complete_task"
+        ]
+        if let mode = activePhoneMode {
+            knownTools.append(contentsOf: mode.toolNames)
+        }
+        return lowered.contains("\"name\"") && knownTools.contains(where: { lowered.contains($0) })
     }
 
     private func hasToolOutputAfterLatestUser(in messages: [ChatMessage]) -> Bool {
