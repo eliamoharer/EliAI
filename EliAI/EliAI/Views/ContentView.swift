@@ -6,11 +6,11 @@ struct ContentView: View {
     @State private var dragOffset: CGFloat = 0
     @State private var didAttemptFallbackModel = false
 
-    var fileSystem: FileSystemManager
-    var llmEngine: LLMEngine
-    var modelDownloader: ModelDownloader
-    var chatManager: ChatManager
-    var agentManager: AgentManager
+    @Environment(FileSystemManager.self) var fileSystem
+    @Environment(LLMEngine.self) var llmEngine
+    @Environment(ModelDownloader.self) var modelDownloader
+    @Environment(ChatManager.self) var chatManager
+    @Environment(AgentManager.self) var agentManager
 
     @State private var showingSettings = false
     @State private var showingNewChatDialog = false
@@ -32,9 +32,6 @@ struct ContentView: View {
             .ignoresSafeArea()
 
             FileExplorerView(
-                fileSystem: fileSystem,
-                chatManager: chatManager,
-                modelDownloader: modelDownloader,
                 isOpaque: false,
                 onSelectFile: { _ in },
                 showingSettings: $showingSettings,
@@ -55,10 +52,6 @@ struct ContentView: View {
 
                 ZStack(alignment: .bottom) {
                     ChatView(
-                        chatManager: chatManager,
-                        llmEngine: llmEngine,
-                        agentManager: agentManager,
-                        modelDownloader: modelDownloader,
                         onShowSettings: { showingSettings = true },
                         isCollapsed: !isChatVisible
                     )
@@ -118,7 +111,7 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingSettings) {
                 NavigationView {
-                    SettingsView(modelDownloader: modelDownloader, llmEngine: llmEngine)
+                    SettingsView()
                         .navigationBarItems(trailing: Button("Done") { showingSettings = false })
                 }
             }

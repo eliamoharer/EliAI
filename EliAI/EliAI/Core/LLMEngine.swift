@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 @preconcurrency import LLM
 
 enum LLMEngineError: LocalizedError {
@@ -13,87 +14,72 @@ enum LLMEngineError: LocalizedError {
     }
 }
 
-private final class GenerationProgressTracker: @unchecked Sendable {
-    private let lock = NSLock()
-    private var lastTokenTime: Date
-    private var didTimeout = false
-    private var emittedToken = false
+private struct GenerationProgressState {
+    var lastTokenTime = Date()
+    var didTimeout = false
+    var emittedToken = false
+}
 
-    init() {
-        lastTokenTime = Date()
-    }
+private final class GenerationProgressTracker: Sendable {
+    private let state = OSAllocatedUnfairLock(initialState: GenerationProgressState())
 
     func markToken() {
-        lock.lock()
-        lastTokenTime = Date()
-        emittedToken = true
-        lock.unlock()
+        state.withLock {
+            $0.lastTokenTime = Date()
+            $0.emittedToken = true
+        }
     }
 
     func secondsSinceLastToken() -> TimeInterval {
-        lock.lock()
-        defer { lock.unlock() }
-        return Date().timeIntervalSince(lastTokenTime)
+        state.withLock { Date().timeIntervalSince($0.lastTokenTime) }
     }
 
     func markTimedOut() {
-        lock.lock()
-        didTimeout = true
-        lock.unlock()
+        state.withLock { $0.didTimeout = true }
     }
 
     func hasTimedOut() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return didTimeout
+        state.withLock { $0.didTimeout }
     }
 
     func hasEmittedToken() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return emittedToken
+        state.withLock { $0.emittedToken }
     }
 }
 
-private final class GenerationResponseTracker: @unchecked Sendable {
-    private let lock = NSLock()
-    private var completed = false
-    private var response: Any?
+private struct GenerationResponseState {
+    var completed = false
+    var response: Any? = nil
+}
+
+private final class GenerationResponseTracker: Sendable {
+    private let state = OSAllocatedUnfairLock(initialState: GenerationResponseState())
 
     func complete(with response: Any) {
-        lock.lock()
-        self.response = response
-        completed = true
-        lock.unlock()
+        state.withLock {
+            $0.response = response
+            $0.completed = true
+        }
     }
 
     func isCompleted() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return completed
+        state.withLock { $0.completed }
     }
 
     func responseValue() -> Any? {
-        lock.lock()
-        defer { lock.unlock() }
-        return response
+        state.withLock { $0.response }
     }
 }
 
-private final class StreamTextBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = ""
+private final class StreamTextBuffer: Sendable {
+    private let state = OSAllocatedUnfairLock(initialState: "")
 
     func append(_ text: String) {
-        lock.lock()
-        value += text
-        lock.unlock()
+        state.withLock { $0 += text }
     }
 
     func snapshot() -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        return value
+        state.withLock { $0 }
     }
 }
 
@@ -178,7 +164,7 @@ class LLMEngine {
         }
     }
 
-    func generate(messages: [ChatMessage], systemPrompt: String = "", phoneMode: PhoneMode? = nil) -> AsyncStream<String> {
+    func generate(messages: [ChatMessage], systemPrompt: String = "", toolPrompt: String = "", phoneMode: PhoneMode? = nil) -> AsyncStream<String> {
         generationTask?.cancel()
         isGenerating = true
         generationError = nil
@@ -194,7 +180,7 @@ class LLMEngine {
 
         let profile = activeProfile
         let clippedMessages = trimmedHistory(messages)
-        let prompt = profile.formatPrompt(messages: clippedMessages, systemPrompt: systemPromptForCurrentStyle(override: systemPrompt, phoneMode: phoneMode))
+        let prompt = profile.formatPrompt(messages: clippedMessages, systemPrompt: systemPromptForCurrentStyle(override: systemPrompt, toolPrompt: toolPrompt, phoneMode: phoneMode))
         applySamplingPreset(profile.sampling, to: llm)
 
         AppLogger.debug("Starting generation with profile \(profile.displayName).", category: .inference)
@@ -385,7 +371,7 @@ class LLMEngine {
         return included.reversed()
     }
 
-    private func systemPromptForCurrentStyle(override: String, phoneMode: PhoneMode? = nil) -> String {
+    private func systemPromptForCurrentStyle(override: String, toolPrompt: String, phoneMode: PhoneMode? = nil) -> String {
         if !override.isEmpty {
             return override
         }
@@ -421,31 +407,20 @@ class LLMEngine {
             : ""
 
         let tools = """
-        You have tools for files, memory, and tasks. When the user asks you to perform one of these actions, you MUST call the tool — do not just describe what you would do.
+        You have tools available to you. When asked to perform an action that a tool handles, call a tool immediately — never describe what you would do.
 
-        To call a tool, output EXACTLY this format:
+        EXACT format (you MUST use this XML wrapper):
         <tool_call>
-        {"name": "tool_name", "arguments": {"key": "value"}}
+        {"name": "TOOL_NAME", "arguments": {"key": "value"}}
         </tool_call>
 
-        Example — user says "save a note about cats":
-        <tool_call>
-        {"name": "create_memory", "arguments": {"title": "cats", "content": "User likes cats."}}
-        </tool_call>
+        Base tools:
+        \(toolPrompt.isEmpty ? "(No tools registered)" : toolPrompt)
 
-        Available tools:
-        - create_file(path, content) — create or overwrite a file
-        - read_file(path) — read file contents
-        - list_files(directory) — list files; omit directory for root
-        - create_memory(title, content) — save a persistent note
-        - recall_memory(title?) — read a specific memory, or all if title omitted
-        - list_memories() — list all saved memories
-        - search_memory(query) — search through memory contents
-        - create_task(title, due?, details?) — create a task with optional notification
-        - list_tasks(include_completed?) — list tasks
-        - complete_task(title) — mark a task as done
-
-        After a tool executes, you receive its output in a <tool_result> block. Report ONLY what the tool actually returned. Never invent file contents, addresses, or other details.
+        RULES:
+        - Always wrap tool calls in <tool_call>...</tool_call> tags with JSON inside.
+        - After a tool runs, you receive its output in a <tool_result> block. Report ONLY what the tool returned — never invent details, addresses, or data.
+        - Keep your reply brief after a tool succeeds (e.g. "Done!" or a short confirmation).
         """
 
         let modePrompt = phoneMode.map { PhoneModePrompts.prompt(for: $0) } ?? ""

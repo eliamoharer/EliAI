@@ -1,9 +1,10 @@
 import SwiftUI
 
 struct FileExplorerView: View {
-    var fileSystem: FileSystemManager
-    var chatManager: ChatManager
-    var modelDownloader: ModelDownloader
+    @Environment(FileSystemManager.self) var fileSystem
+    @Environment(ChatManager.self) var chatManager
+    @Environment(ModelDownloader.self) var modelDownloader
+    
     var isOpaque: Bool
     var onSelectFile: (FileItem) -> Void
 
@@ -71,7 +72,7 @@ struct FileExplorerView: View {
                         .listRowBackground(Color.clear)
                 }
             }
-            .navigationTitle("")
+            .navigationTitle("EliAI")
             .listStyle(SidebarListStyle())
             .scrollContentBackground(.hidden)
             .background(Color.clear)

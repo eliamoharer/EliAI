@@ -599,8 +599,6 @@ struct MessageBubble: View {
             MathDelimiter(open: "\\begin{cases}", close: "\\end{cases}", display: true),
             MathDelimiter(open: "$$", close: "$$", display: true),
             MathDelimiter(open: "\\[", close: "\\]", display: true),
-            MathDelimiter(open: "\\(", close: "\\)", display: false),
-            MathDelimiter(open: "$", close: "$", display: false)
         ]
 
         var segments: [MessageSegment] = []
@@ -626,12 +624,7 @@ struct MessageBubble: View {
             let latex = rawLatex.trimmingCharacters(in: .whitespacesAndNewlines)
 
             if !latex.isEmpty {
-                if !startMatch.delimiter.display && startMatch.delimiter.open == "$" && !looksLikeInlineMath(latex) {
-                    let original = String(text[startMatch.range.lowerBound..<endRange.upperBound])
-                    segments.append(MessageSegment(kind: .markdown(original)))
-                } else {
-                    segments.append(MessageSegment(kind: .math(latex, display: startMatch.delimiter.display)))
-                }
+                segments.append(MessageSegment(kind: .math(latex, display: startMatch.delimiter.display)))
             }
             cursor = endRange.upperBound
         }
@@ -978,11 +971,23 @@ private struct MarkdownMathText: UIViewRepresentable {
     private func makeAttributedText() -> NSAttributedString {
         let cleanText = MessageFormatting.normalizeNewlines(text.isEmpty ? " " : text)
         let normalizedMarkdown = MessageFormatting.normalizeMarkdown(cleanText)
-        let displayMarkdown = normalizedMarkdown.replacingOccurrences(of: "\\$", with: "$")
+        let escapedPlaceholder = "\u{2060}"
+        let preDisplay = normalizedMarkdown.replacingOccurrences(of: "\\$", with: escapedPlaceholder)
 
-        let mutable = buildStructuredAttributedText(from: displayMarkdown)
-        let fullRange = NSRange(location: 0, length: mutable.length)
+        let mutable = buildStructuredAttributedText(from: preDisplay)
         let textColor: UIColor = role == .user ? .white : .label
+        
+        applyReadableTextSizing(to: mutable, delta: 0)
+        embedInlineMath(in: mutable, textColor: textColor)
+        
+        let dollarPlaceholderRange = NSRange(location: 0, length: mutable.length)
+        let placeholderStr = mutable.string
+        if placeholderStr.contains(escapedPlaceholder) {
+            let nsMutable = mutable.mutableString
+            nsMutable.replaceOccurrences(of: escapedPlaceholder, with: "$", range: dollarPlaceholderRange)
+        }
+
+        let fullRange = NSRange(location: 0, length: mutable.length)
         mutable.enumerateAttribute(.foregroundColor, in: fullRange, options: []) { value, range, _ in
             if value == nil {
                 mutable.addAttribute(.foregroundColor, value: textColor, range: range)
@@ -992,8 +997,93 @@ private struct MarkdownMathText: UIViewRepresentable {
             mutable.addAttribute(.foregroundColor, value: UIColor.white, range: fullRange)
         }
 
-        applyReadableTextSizing(to: mutable, delta: 0)
         return mutable
+    }
+
+    private func embedInlineMath(in mutable: NSMutableAttributedString, textColor: UIColor) {
+        let text = mutable.string
+        
+        let pattern = #"(?<!\\)(?:\$(.*?)\$|\\\((.*?)\\\))"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return }
+        
+        let nsRange = NSRange(location: 0, length: mutable.length)
+        let matches = regex.matches(in: text, options: [], range: nsRange)
+        
+        for match in matches.reversed() {
+            let fullRange = match.range
+            var mathText = ""
+            
+            if match.range(at: 1).location != NSNotFound {
+                mathText = (text as NSString).substring(with: match.range(at: 1))
+            } else if match.range(at: 2).location != NSNotFound {
+                mathText = (text as NSString).substring(with: match.range(at: 2))
+            }
+            
+            mathText = mathText.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if !mathText.isEmpty && looksLikeInlineMath(mathText) {
+                if let attachment = renderInlineMathImage(latex: mathText, textColor: textColor) {
+                    let attrString = NSAttributedString(attachment: attachment)
+                    mutable.replaceCharacters(in: fullRange, with: attrString)
+                }
+            }
+        }
+    }
+
+    private func looksLikeInlineMath(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return false }
+        
+        if trimmed.hasPrefix("\\") { return true }
+        if trimmed.contains("^") || trimmed.contains("_") || trimmed.contains("\\") { return true }
+        
+        let mathOperators = CharacterSet(charactersIn: "+-*/=<>{}[]()")
+        if trimmed.rangeOfCharacter(from: mathOperators) != nil { return true }
+        
+        let letters = CharacterSet.letters
+        let hasLetters = trimmed.rangeOfCharacter(from: letters) != nil
+        let digits = CharacterSet.decimalDigits
+        let hasDigits = trimmed.rangeOfCharacter(from: digits) != nil
+        
+        if hasLetters && hasDigits { return true }
+        if text.count > 2 && hasLetters { return true }
+        
+        return false
+    }
+
+    private func renderInlineMathImage(latex: String, textColor: UIColor) -> NSTextAttachment? {
+        let label = MTMathUILabel()
+        label.latex = latex
+        label.textColor = textColor
+        label.fontSize = 17
+        label.textAlignment = .left
+        label.labelMode = .text
+        
+        label.sizeToFit()
+        let size = label.bounds.size
+        
+        if size.width <= 0 || size.height <= 0 { return nil }
+        
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { ctx in
+            label.layer.render(in: ctx.cgContext)
+            
+            // Fallback for sometimes-empty renders when view isn't in hierarchy
+            if let cgImage = ctx.currentImage.cgImage, cgImage.width == 0 || cgImage.height == 0 {
+                label.drawHierarchy(in: label.bounds, afterScreenUpdates: true)
+            }
+        }
+        
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        
+        let font = UIFont.systemFont(ofSize: 17)
+        let mid = font.descender + font.capHeight
+        let yOffset = mid - size.height / 2.0
+        
+        attachment.bounds = CGRect(x: 0, y: yOffset, width: size.width, height: size.height)
+        
+        return attachment
     }
 
     private func buildStructuredAttributedText(from markdown: String) -> NSMutableAttributedString {
