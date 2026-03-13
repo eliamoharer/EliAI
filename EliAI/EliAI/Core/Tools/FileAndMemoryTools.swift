@@ -113,7 +113,7 @@ struct RecallMemoryTool: Tool {
 struct ListMemoriesTool: Tool {
     let name = "list_memories"
     let description = "List all memories"
-    let parameters = []
+    let parameters: [String] = []
     let fileSystem: FileSystemManager
 
     func execute(arguments: [String: String]) async throws -> String {

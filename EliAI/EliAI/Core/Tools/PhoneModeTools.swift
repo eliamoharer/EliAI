@@ -20,7 +20,7 @@ struct CreateReminderTool: Tool {
 struct ListReminderListsTool: Tool {
     let name = "list_reminder_lists"
     let description = "List available reminder lists"
-    let parameters = []
+    let parameters: [String] = []
     let phoneModeManager: PhoneModeManager
 
     func execute(arguments: [String: String]) async throws -> String {
