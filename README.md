@@ -1,5 +1,6 @@
 # EliAI - Local iOS Personal AI
 https://x.com/eliamoharer/status/2032643682357158307?s=46
+
 A local, privacy-first personal AI assistant for iOS, powered by `llama.cpp` through `LLM.swift`, with validated `.gguf` support for Qwen 3 and LFM 2.5 profiles.
 
 ## Features
